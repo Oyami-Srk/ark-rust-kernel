@@ -13,6 +13,7 @@ use core::mem::size_of;
 use log::warn;
 use riscv::register::mcause::Trap;
 use crate::core::Mutex;
+use crate::filesystem::{DirEntry, DirEntryType, File, get_root};
 use crate::interrupt::{enable_trap, TrapContext, user_trap_returner};
 use super::pid::Pid;
 use crate::memory;
@@ -41,6 +42,9 @@ pub struct ProcessData {
     pub page_table: PageTable,
     // TODO: sbrk use prog end record
     pub pages: Vec<Arc<PhyPage>>,
+    // Files
+    pub cwd: Arc<DirEntry>,
+    pub files: Vec<Option<Arc<dyn File>>>,
 }
 
 impl ProcessData {
@@ -71,10 +75,16 @@ impl Process {
             kernel_task_context,
             page_table,
             pages: vec![],
+            cwd: get_root(),
+            files: Vec::new()
         };
         let trap_context = process_data.get_trap_context();
         trap_context.kernel_sp = kernel_sp;
         trap_context.satp = user_satp;
+        // setup files
+        process_data.files.push(Some(Arc::new(crate::device::console::Stdin)));
+        process_data.files.push(Some(Arc::new(crate::device::console::Stdout)));
+        process_data.files.push(Some(Arc::new(crate::device::console::Stdout)));
 
         Self {
             pid,
@@ -92,7 +102,7 @@ impl ProcessManager {
     pub fn new() -> Self {
         Self {
             process_list: BTreeMap::new(),
-            previous_scheduled_pid: 0
+            previous_scheduled_pid: 0,
         }
     }
 

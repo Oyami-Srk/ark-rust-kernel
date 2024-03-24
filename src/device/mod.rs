@@ -6,10 +6,13 @@
 //!   - 2024/03/14: File created.
 
 #[macro_use]
-mod console;
+pub mod console;
 
 pub use console::{Console, Write as ConsoleWrite};
+use crate::do_init;
 
 pub fn init() {
-
+    do_init!(
+        console
+    );
 }

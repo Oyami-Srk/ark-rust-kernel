@@ -6,8 +6,14 @@
 //!   - 2024/03/14: File created.
 
 pub struct Console;
+
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 pub use core::fmt::{self, Write};
 use sbi::legacy::console_putchar;
+use crate::filesystem::{DirEntry, File, SeekPosition};
+use crate::print;
+use crate::utils::error::{Result, EmptyResult};
 
 impl Write for Console {
     fn write_str(&mut self, string: &str) -> fmt::Result {
@@ -17,3 +23,51 @@ impl Write for Console {
         Ok(())
     }
 }
+
+pub struct Stdin;
+
+pub struct Stdout;
+// struct Stderr;
+
+impl File for Stdin {
+    fn seek(&self, offset: usize, whence: SeekPosition) -> Result<usize> {
+        Err("You cannot seek a stream.".into())
+    }
+
+    fn read(&self, len: usize) -> Result<Vec<u8>> {
+        todo!()
+    }
+
+    fn write(&self, buf: &[u8]) -> Result<usize> {
+        Err("You cannot write to stdin.".into())
+    }
+
+    fn close(&mut self) {}
+
+    fn get_dentry(&self) -> Arc<DirEntry> {
+        panic!("Invalid get dentry for stdin/stdout")
+    }
+}
+
+impl File for Stdout {
+    fn seek(&self, offset: usize, whence: SeekPosition) -> Result<usize> {
+        Err("You cannot seek a stream.".into())
+    }
+
+    fn read(&self, len: usize) -> Result<Vec<u8>> {
+        Err("You cannot read from stdout.".into())
+    }
+
+    fn write(&self, buf: &[u8]) -> Result<usize> {
+        print!("{}", core::str::from_utf8(buf).unwrap());
+        Ok(buf.len())
+    }
+
+    fn close(&mut self) {}
+
+    fn get_dentry(&self) -> Arc<DirEntry> {
+        panic!("Invalid get dentry for stdin/stdout")
+    }
+}
+
+pub fn init() {}

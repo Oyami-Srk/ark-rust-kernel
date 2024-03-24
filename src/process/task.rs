@@ -7,6 +7,7 @@
 
 use core::arch::global_asm;
 use crate::cpu::CPU;
+use crate::process::ProcessStatus;
 global_asm!(include_str!("switch.S"));
 
 #[repr(C)]
@@ -49,6 +50,12 @@ pub fn do_yield() {
     let trap_enabled = cpu.get_trap_enabled();
     let proc = cpu.get_process().unwrap();
     let mut proc_data = proc.data.lock();
+    match proc_data.status {
+        ProcessStatus::Running => {
+            proc_data.status = ProcessStatus::Ready;
+        }
+        _ => {}
+    }
     let old_ctx = &mut proc_data.kernel_task_context as *mut TaskContext;
     let new_ctx = cpu.get_context();
     drop(proc_data); // FIXME: old_ctx outlived with proc_data

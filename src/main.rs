@@ -62,6 +62,5 @@ Ark Rust Kernel ({}), Created by Shiroko, with love and passion.
         process
     );
 
-    loop{}
     process::worker()
 }

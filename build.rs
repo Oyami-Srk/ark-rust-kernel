@@ -68,16 +68,16 @@ pub const PROG_BINARIES: [&[u8]; {}] = ["#, count);
     writeln!(writer, r#"];"#);
 
     /* notify cargo to rerun this when... */
-    // println!("cargo:rerun-if-changed={}", target_path);
+    println!("cargo:rerun-if-changed={}", target_path);
 }
 
 fn bundle_init_user_program<T: Write>(mut writer: T, init_elf_path: &str) {
-    // println!("cargo:rerun-if-changed={}", init_elf_path);
     create_binary(init_elf_path);
     create_disassembly(init_elf_path);
     writeln!(writer, r#"
-pub const INIT_PROG_BINARY: &[u8] = include_bytes!("../../{}.bin");
+pub const PROG_BINARIES: [&[u8]; 1] = [include_bytes!("../../{}.bin")];
 "#, init_elf_path);
+    println!("cargo:rerun-if-changed={}", init_elf_path);
 }
 
 
@@ -90,8 +90,8 @@ fn main() {
     writeln!(writer, "{}", FILE_HEADER);
     writeln!(writer, "// Generated at {}", Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
 
-    // bundle_init_user_program(writer, INIT_FILE_PATH);
-    bundle_multiple_user_program(writer, ELF_FILES_PATH);
+    bundle_init_user_program(writer, INIT_FILE_PATH);
+    // bundle_multiple_user_program(writer, ELF_FILES_PATH);
 
     /* notify cargo to rerun this when... */
     println!("cargo:rerun-if-changed=../user/src");

@@ -7,7 +7,9 @@
 
 use core::fmt::{Display, Formatter};
 use core::ops::{Add, Sub};
-use crate::memory::PAGE_SIZE;
+use crate::cpu::CPU;
+use crate::memory::{PAGE_SIZE, PageTable};
+use crate::utils::error::Result;
 
 // Declarations
 #[repr(C)]
@@ -195,8 +197,36 @@ impl PhyAddr {
         unsafe { (self.addr as *mut T).as_mut().expect("Try to get mutable reference to null") }
     }
 
+    pub fn get_slice<T>(&self, len: usize) -> &'static [T] {
+        unsafe { core::slice::from_raw_parts(self.addr as *mut T, len) }
+    }
+
     pub fn get_slice_mut<T>(&self, len: usize) -> &'static mut [T] {
         unsafe { core::slice::from_raw_parts_mut(self.addr as *mut T, len) }
+    }
+
+    pub fn get_u8(&self, len: usize) -> &'static [u8] {
+        self.get_slice(len)
+    }
+
+    pub fn get_u8_mut(&self, len: usize) -> &'static mut [u8] {
+        self.get_slice_mut(len)
+    }
+
+    pub fn get_str(&self, len: usize) ->&'static str{
+        core::str::from_utf8(self.get_u8(len)).unwrap()
+    }
+
+    pub fn get_cstr(&self) -> &'static str {
+        let mut length = 0;
+        let mut temp_ptr = self.addr as *const u8;
+        unsafe {
+            while *temp_ptr != 0 {
+                length += 1;
+                temp_ptr = temp_ptr.offset(1);
+            }
+        }
+        self.get_str(length)
     }
 }
 
@@ -208,7 +238,18 @@ impl Addr for PhyAddr {
 
 impl PhyPageId {}
 
-impl VirtAddr {}
+impl VirtAddr {
+    pub fn into_pa(self, page_table: &PageTable) -> PhyAddr {
+        page_table.translate(self).unwrap()
+    }
+
+    pub fn into_pa_current_process(self) -> Option<PhyAddr> {
+        let proc = CPU::get_current().unwrap().get_process()?;
+        let proc_data = proc.data.lock();
+        let page_table = &proc_data.page_table;
+        Some(self.into_pa(page_table))
+    }
+}
 
 impl Addr for VirtAddr {
     fn get_addr(&self) -> usize {
