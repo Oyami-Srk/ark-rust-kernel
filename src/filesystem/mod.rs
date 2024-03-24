@@ -63,7 +63,7 @@ pub trait Inode: Drop {
 
 // 1 FS has Many SBs
 pub trait Superblock {
-    fn alloc_inode(&mut self) -> Result<Arc<dyn Inode>>;
+    fn alloc_inode(&mut self, type_: DirEntryType) -> Result<Arc<dyn Inode>>;
     fn root_inode(&self) -> Arc<dyn Inode>;
 }
 
@@ -82,8 +82,8 @@ pub trait File {
     fn seek(&mut self, offset: usize) -> EmptyResult;
     fn read(&mut self, offset: usize, len: usize) -> Result<&[u8]>;
     fn write(&mut self, offset: usize, buf: &[u8]) -> EmptyResult;
+    // Open is inside inode
 
-    fn open() -> Self;
     fn close(&mut self);
 }
 

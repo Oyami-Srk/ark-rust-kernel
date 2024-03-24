@@ -3,7 +3,7 @@ use alloc::sync::{Arc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
 use crate::core::Mutex;
-use crate::filesystem::{DirEntry, File, Filesystem, Inode, Superblock};
+use crate::filesystem::{DirEntry, DirEntryType, File, Filesystem, Inode, Superblock};
 use crate::utils::error::{EmptyResult, Result};
 
 struct VFSData {
@@ -47,11 +47,14 @@ struct VFSSuperblock {
 
 impl VFSSuperblock {
     pub fn new() -> Arc<Self> {
-        let root_inode = Arc::new(VFSInode {
+        let root_inode_data = VFSInodeData{
             n_links: 1,
             n_files: 0,
             n_byte_size: 0,
+        };
+        let root_inode = Arc::new(VFSInode {
             type_: InodeType::Dir,
+            data: Mutex::new(root_inode_data)
         });
         Arc::new(Self {
             root_inode: root_inode,
@@ -61,12 +64,24 @@ impl VFSSuperblock {
 }
 
 impl Superblock for VFSSuperblock{
-    fn alloc_inode(&mut self) -> Result<Arc<dyn Inode>> {
+    fn alloc_inode(&mut self, type_: DirEntryType) -> Result<Arc<dyn Inode>> {
+        let inode_data = VFSInodeData {
+            n_links: 1,
+            n_files: 0,
+            n_byte_size: 0,
+        };
 
+        Ok(Arc::new(VFSInode {
+            type_: match type_ {
+                DirEntryType::File => InodeType::File,
+                DirEntryType::Dir => InodeType::Dir
+            },
+            data: Mutex::new(inode_data),
+        }))
     }
 
     fn root_inode(&self) -> Arc<dyn Inode> {
-        todo!()
+        self.root_inode.clone()
     }
 }
 
@@ -78,16 +93,19 @@ enum InodeType {
 
 struct VFSInode {
     // Since VFS Inode is not persistent, we haven't to got even an id
+    type_: InodeType,
+    data: Mutex<VFSInodeData>
+}
+
+struct VFSInodeData {
     n_links: usize,
     n_files: usize,
     n_byte_size: usize,
-    // TODO: device field
-    type_: InodeType,
 }
 
 impl Drop for VFSInode {
     fn drop(&mut self) {
-        todo!()
+        // do nothing
     }
 }
 
@@ -117,10 +135,6 @@ impl Inode for VFSInode {
     }
 
     fn open(&self) -> Result<Arc<dyn File>> {
-        todo!()
-    }
-
-    fn get_superblock(&self) -> Arc<dyn Superblock> {
         todo!()
     }
 }
