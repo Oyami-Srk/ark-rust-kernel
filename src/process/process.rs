@@ -10,6 +10,7 @@ use alloc::sync::{Arc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::mem::size_of;
+use fdt::standard_nodes::Memory;
 use log::warn;
 use riscv::register::mcause::Trap;
 use crate::core::Mutex;
@@ -19,6 +20,7 @@ use super::pid::Pid;
 use crate::memory;
 use crate::memory::{PAGE_SIZE, PageTable, PhyAddr, PhyPage, PhyPageId, PTEFlags, VirtAddr};
 use crate::process::TaskContext;
+use super::process_memory::ProcessMemory;
 
 #[derive(Copy, Clone)]
 pub enum ProcessStatus {
@@ -39,9 +41,7 @@ pub struct ProcessData {
     pub kernel_stack: PhyPage,
     // We use kernel_stack to store trap context
     pub kernel_task_context: TaskContext,
-    pub page_table: PageTable,
-    // TODO: sbrk use prog end record
-    pub pages: Vec<Arc<PhyPage>>,
+    pub memory: ProcessMemory,
     // Files
     pub cwd: Arc<DirEntry>,
     pub files: Vec<Option<Arc<dyn File>>>,
@@ -59,22 +59,19 @@ impl Process {
         let kernel_stack = PhyPage::alloc();
         // let kernel_sp = PhyAddr::from(kernel_stack.id).addr + PAGE_SIZE - size_of::<TrapContext>();
         let kernel_sp = PhyAddr::from(kernel_stack.id).addr + PAGE_SIZE;
-        let mut page_table = PageTable::new();
-        // Set kernel huge table entry
-        page_table.map_big(
-            VirtAddr::from(0x80000000), PhyAddr::from(0x80000000),
-            PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::G,
-        );
+
+        let memory = ProcessMemory::new();
+
         let kernel_task_context = TaskContext::new().with_sp(kernel_sp).with_ra(user_trap_returner as usize);
-        let user_satp = page_table.to_satp();
+        let user_satp = memory.get_satp();
+
         let mut process_data = ProcessData {
             status: ProcessStatus::Ready,
             parent: None,
             children: vec![],
             kernel_stack,
             kernel_task_context,
-            page_table,
-            pages: vec![],
+            memory,
             cwd: get_root(),
             files: Vec::new()
         };

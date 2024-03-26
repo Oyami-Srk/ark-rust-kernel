@@ -19,7 +19,7 @@ pub struct PhyAddr {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct VirtAddr {
     pub addr: usize,
 }
@@ -31,7 +31,7 @@ pub struct PhyPageId {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct VirtPageId {
     pub id: usize,
 }
@@ -128,6 +128,32 @@ impl From<VirtAddr> for VirtPageId {
     }
 }
 
+impl Add<usize> for VirtPageId {
+    type Output = Self;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Self {
+            id: self.id + rhs
+        }
+    }
+}
+
+impl Sub<usize> for VirtPageId {
+    type Output = Self;
+
+    fn sub(self, rhs: usize) -> Self::Output {
+        if rhs > self.id {
+            Self {
+                id: 0
+            }
+        } else {
+            Self {
+                id: self.id - rhs
+            }
+        }
+    }
+}
+
 // Implementation of Display
 impl Display for PhyAddr {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
@@ -172,7 +198,7 @@ pub trait Addr: Sized + From<usize> {
         self.round_down_to(PAGE_SIZE)
     }
 
-    fn to_offset(self, offset: isize) -> Self {
+    fn to_offset(&self, offset: isize) -> Self {
         let addr = if offset < 0 {
             if self.get_addr() < (offset.unsigned_abs()) {
                 0
@@ -246,7 +272,7 @@ impl VirtAddr {
     pub fn into_pa_current_process(self) -> Option<PhyAddr> {
         let proc = CPU::get_current().unwrap().get_process()?;
         let proc_data = proc.data.lock();
-        let page_table = &proc_data.page_table;
+        let page_table = &proc_data.memory.get_pagetable();
         Some(self.into_pa(page_table))
     }
 }

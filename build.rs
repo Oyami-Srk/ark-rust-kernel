@@ -45,9 +45,9 @@ fn bundle_multiple_user_program<T: Write>(mut writer: T, target_path: &str) {
             let filename = p.file_name().to_str().unwrap().to_string();
             if p.file_type().unwrap().is_file() && !filename.contains(".")
             {
-                create_binary(format!("{}/{}", target_path, filename).as_str());
+                // create_binary(format!("{}/{}", target_path, filename).as_str());
                 create_disassembly(format!("{}/{}", target_path, filename).as_str());
-                Some(format!("{}.bin", filename))
+                Some(format!("{}", filename))
             } else {
                 None
             }
@@ -72,10 +72,10 @@ pub const PROG_BINARIES: [&[u8]; {}] = ["#, count);
 }
 
 fn bundle_init_user_program<T: Write>(mut writer: T, init_elf_path: &str) {
-    create_binary(init_elf_path);
+    // create_binary(init_elf_path);
     create_disassembly(init_elf_path);
     writeln!(writer, r#"
-pub const PROG_BINARIES: [&[u8]; 1] = [include_bytes!("../../{}.bin")];
+pub const PROG_BINARIES: [&[u8]; 1] = [include_bytes!("../../{}")];
 "#, init_elf_path);
     println!("cargo:rerun-if-changed={}", init_elf_path);
 }

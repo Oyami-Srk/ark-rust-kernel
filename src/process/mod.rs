@@ -8,7 +8,10 @@
 mod pid;
 mod process;
 // User process
-mod task;       // kernel task
+mod task;
+// kernel task
+mod process_memory;
+
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -22,8 +25,8 @@ pub use task::{TaskContext};
 pub use pid::Pid;
 use crate::cpu::CPU;
 use crate::init;
-use crate::interrupt::enable_trap;
-use crate::memory::{PAGE_SIZE, PhyAddr, PhyPage, PTEFlags, VirtAddr};
+use crate::interrupt::{enable_trap, TrapContext};
+use crate::memory::{Addr, PAGE_SIZE, PhyAddr, PhyPage, PTEFlags, VirtAddr, VirtPageId};
 pub use task::{context_switch, do_yield};
 
 lazy_static! {
@@ -38,15 +41,75 @@ fn fill_proc_test(proc: Arc<Process>, proc_binary: &[u8]) {
         core::ptr::copy_nonoverlapping(proc_binary.as_ptr(), target, prog_size);
     }
     let mut data = proc.data.lock();
-    for i in 0..8 {
-        data.page_table.map(VirtAddr::from(PAGE_SIZE * i), PhyAddr::from(page[i].id), PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::U);
-    }
+    let memory = &mut data.memory;
+    page.into_iter().enumerate().for_each(|(i, page)| {
+        memory.map(VirtAddr::from(PAGE_SIZE * i).into(), page, PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::U);
+    });
+    memory.prog_end = VirtAddr::from(proc_binary.len());
+    memory.brk = memory.prog_end;
+    memory.increase_user_stack();
     let ctx = data.get_trap_context();
-    ctx.reg[2] = PAGE_SIZE * 8;
-    let page = page.into_iter().map(|p| Arc::new(p)).into_iter();
-    data.pages.extend(page);
-    let new_ctx = &data.kernel_task_context as *const TaskContext;
+    ctx.reg[TrapContext::sp] = 0x8000_0000;
     drop(data);
+}
+
+fn load_from_elf(proc: Arc<Process>, elf_binary: &[u8]) {
+    let elf = xmas_elf::ElfFile::new(elf_binary).unwrap();
+    let header = elf.header;
+    assert_eq!(header.pt1.magic, [0x7f, 0x45, 0x4c, 0x46], "invalid elf.");
+    let mut proc_data = proc.data.lock();
+    let memory = &mut proc_data.memory;
+    // Load prog header
+    for i in 0..elf.header.pt2.ph_count() {
+        let ph = elf.program_header(i).unwrap();
+        if ph.get_type().unwrap() == xmas_elf::program::Type::Load {
+            let start_va = VirtAddr::from(ph.virtual_addr() as usize);
+            let end_va = start_va.clone().to_offset(ph.mem_size() as isize);
+            let mut flags = PTEFlags::U;
+            if ph.flags().is_read() {
+                flags |= PTEFlags::R;
+            }
+            if ph.flags().is_write() {
+                flags |= PTEFlags::W;
+            }
+            if ph.flags().is_execute() {
+                flags |= PTEFlags::X;
+            }
+            // TODO: Use other model to manage user space mapping
+            let size = ph.file_size() as usize;
+            let offset = ph.offset() as usize % PAGE_SIZE;
+            let total_size = size + offset;
+            let pg_count = (total_size + PAGE_SIZE - 1) / PAGE_SIZE;
+            let data = &elf.input[ph.offset() as usize..(ph.offset() + ph.file_size()) as usize];
+
+            for pg in 0..pg_count {
+                // FIXME: non-continuous page could cause UK transfer error.
+                let page = PhyPage::alloc(); // continuous page is not required for user program.
+
+                let begin = if pg == 0 { 0 } else { PAGE_SIZE * pg - offset };
+                let inpage_offset = if pg == 0 { offset } else { 0 };
+                let end = if pg == pg_count - 1 {
+                    size
+                } else {
+                    begin + PAGE_SIZE - inpage_offset
+                };
+                page.copy_u8(inpage_offset, &data[begin..end]);
+                let vpn: VirtPageId = VirtAddr::from(ph.virtual_addr() as usize + PAGE_SIZE * pg).into();
+                info!("Map VA {:#x}.", vpn.id * PAGE_SIZE);
+                memory.map(vpn, page, flags);
+            }
+        }
+    }
+    // get prog end
+    let prog_end = memory.get_mapped_last_page();
+    memory.prog_end = prog_end.into();
+    memory.brk = memory.prog_end;
+    // Setup user stack
+    memory.increase_user_stack();
+    let ctx = proc_data.get_trap_context();
+    ctx.reg[TrapContext::sp] = 0x8000_0000;
+    // Setup entry point
+    ctx.sepc = elf.header.pt2.entry_point() as usize;
 }
 
 pub fn init() {
@@ -54,8 +117,9 @@ pub fn init() {
     info!("Testing...");
 
     for binary in init::PROG_BINARIES {
-        fill_proc_test(PROCESS_MANAGER.lock().spawn(), binary);
+        load_from_elf(PROCESS_MANAGER.lock().spawn(), binary);
     }
+    info!("Loaded...");
 }
 
 // Worker is running under every cpu

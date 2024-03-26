@@ -12,6 +12,7 @@ use crate::memory::address::{VirtAddr, VirtPageId, Addr};
 use super::{PhyPageId, PhyPage, PhyAddr};
 
 bitflags! {
+    #[derive(Copy, Clone)]
     pub struct PTEFlags: u8 {
         const V = 1 << 0;
         const R = 1 << 1;

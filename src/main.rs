@@ -7,7 +7,7 @@
 
 #![no_main]
 #![no_std]
-#![feature(panic_info_message, fmt_internals, strict_provenance, error_in_core)]
+#![feature(panic_info_message, fmt_internals, strict_provenance, error_in_core, macro_metavar_expr)]
 #![feature(let_chains)]
 
 #![allow(dead_code)] // Development only

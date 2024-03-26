@@ -10,6 +10,7 @@ use alloc::vec::Vec;
 use buddy_system_allocator::{LockedFrameAllocator, LockedHeap};
 use lazy_static::lazy_static;
 use crate::core::Mutex;
+use crate::memory::{Addr, PAGE_SIZE};
 use crate::startup;
 use super::address::{PhyAddr, PhyPageId};
 
@@ -45,6 +46,11 @@ pub struct PhyPage {
 
 impl PhyPage {
     pub fn new(id: PhyPageId) -> Self {
+        // clear
+        let pg_addr = PhyAddr::from(id).addr;
+        (pg_addr..pg_addr + PAGE_SIZE).for_each(|addr| unsafe {
+            (addr as *mut u8).write_volatile(0);
+        });
         Self {
             id
         }
@@ -58,7 +64,7 @@ impl PhyPage {
 
     pub fn alloc_many(count: usize) -> Vec<Self> {
         let start_id = PAGE_ALLOCATOR.lock().alloc(count).expect(format!("Allocate {} page failed", count).as_str());
-        (start_id..start_id+count).map(|id| Self::new(id.into())).collect()
+        (start_id..start_id + count).map(|id| Self::new(id.into())).collect()
     }
 
     pub fn get_ref<T>(&self) -> &'static T {
@@ -67,6 +73,15 @@ impl PhyPage {
 
     pub fn get_ref_mut<T>(&self) -> &'static mut T {
         PhyAddr::from(self.id).get_ref_mut()
+    }
+
+    pub fn copy_u8(&self, offset: usize, data: &[u8]) {
+        // assume no overlapping
+        unsafe {
+            core::ptr::copy_nonoverlapping(data.as_ptr(),
+                                           PhyAddr::from(self.id).to_offset(offset as isize).get_ref_mut(),
+                                           data.len());
+        }
     }
 }
 

@@ -11,7 +11,7 @@ const AT_FDCWD: usize = (-100isize) as usize;
 pub fn open(parent_fd: usize, filename_buf: VirtAddr, flags: FileOpenFlags, mode: FileModes) -> usize {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let mut proc_data = proc.data.lock();
-    let filename = filename_buf.into_pa(&proc_data.page_table).get_cstr();
+    let filename = filename_buf.into_pa(&proc_data.memory.get_pagetable()).get_cstr();
     let cwd = if parent_fd == AT_FDCWD {
         (&proc_data.cwd).clone()
     } else {
@@ -74,7 +74,7 @@ pub fn read(fd: usize, user_buf: VirtAddr, len: usize) -> usize {
         if let Ok(data) = fs::read(file.clone(), len) {
             let data_slice = data.as_slice();
             let len = data_slice.len();
-            let phy_buf = user_buf.into_pa(&proc_data.page_table).get_u8_mut(len);
+            let phy_buf = user_buf.into_pa(&proc_data.memory.get_pagetable()).get_u8_mut(len);
             phy_buf.copy_from_slice(data_slice);
             len
         }
@@ -93,7 +93,7 @@ pub fn write(fd: usize, user_buf: VirtAddr, len: usize) -> usize {
         return -1isize as usize;
     }
     if let Some(file) = &proc_data.files[fd] {
-        let phy_buf = user_buf.into_pa(&proc_data.page_table).get_u8(len);
+        let phy_buf = user_buf.into_pa(&proc_data.memory.get_pagetable()).get_u8(len);
         if let Ok(len) = fs::write(file.clone(), phy_buf) {
             len
         }
