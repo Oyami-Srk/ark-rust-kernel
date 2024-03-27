@@ -1,6 +1,6 @@
 /* Structs */
 
-use crate::core::Mutex;
+use crate::core::Spinlock;
 use core::iter::Peekable;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -30,7 +30,7 @@ pub struct DirEntry {
     name: String,
     inode: Option<Arc<dyn Inode>>,
     type_: DirEntryType,
-    children: Mutex<Vec<Arc<DirEntry>>>,
+    children: Spinlock<Vec<Arc<DirEntry>>>,
 }
 
 impl Debug for DirEntry {
@@ -147,7 +147,7 @@ pub trait Filesystem {
 }
 
 pub trait File {
-    fn seek(&self, offset: usize, whence: SeekPosition) -> Result<usize>;
+    fn seek(&self, offset: isize, whence: SeekPosition) -> Result<usize>;
     fn read(&self, len: usize) -> Result<Vec<u8>>;
     fn write(&self, buf: &[u8]) -> Result<usize>;
     fn close(&mut self);
@@ -156,18 +156,18 @@ pub trait File {
 
 pub struct DirFile {
     dentry: Arc<DirEntry>,
-    iterator: Mutex<Option<usize>>,
+    iterator: Spinlock<Option<usize>>,
 }
 
 impl File for DirFile {
-    fn seek(&self, offset: usize, whence: SeekPosition) -> Result<usize> {
+    fn seek(&self, offset: isize, whence: SeekPosition) -> Result<usize> {
         let mut iterator = self.iterator.lock();
-        if offset == 0 {
+        if offset <= 0 {
             *iterator = None;
         } else {
-            *iterator = Some(offset);
+            *iterator = Some(offset as usize);
         }
-        Ok(offset)
+        Ok(iterator.unwrap_or(0))
     }
 
     fn read(&self, len: usize) -> Result<Vec<u8>> {
@@ -186,7 +186,7 @@ impl File for DirFile {
 }
 
 lazy_static! {
-    static ref FILESYSTEMS: Mutex<BTreeMap<&'static str, Box<dyn Filesystem>>> = Mutex::new(BTreeMap::new());
+    static ref FILESYSTEMS: Spinlock<BTreeMap<&'static str, Box<dyn Filesystem>>> = Spinlock::new(BTreeMap::new());
 }
 
 static mut ROOT_DENTRY: Option<Arc<DirEntry>> = None;
@@ -201,7 +201,7 @@ pub fn init() {
         parent: None,
         name: "/".to_string(),
         inode: None,
-        children: Mutex::new(Vec::new()),
+        children: Spinlock::new(Vec::new()),
         type_: DirEntryType::Dir,
     });
     // Safety: Only write here once
@@ -336,7 +336,7 @@ pub fn link(parent: Arc<DirEntry>, inode: Arc<dyn Inode>, name: &str) -> Result<
         name: name.to_string(),
         inode: Some(inode.clone()),
         type_: inode.get_dentry_type(),
-        children: Mutex::new(Vec::new()),
+        children: Spinlock::new(Vec::new()),
     });
     parent.children.lock().push(dentry.clone());
 
@@ -354,7 +354,7 @@ pub fn open(dentry: Arc<DirEntry>, flags: FileOpenFlags, mode: FileModes) -> Res
         }
         DirEntryType::Dir => Ok(Arc::new(DirFile {
             dentry,
-            iterator: Mutex::new(None),
+            iterator: Spinlock::new(None),
         }))
     }
 }
@@ -371,7 +371,7 @@ pub fn write(file: Arc<dyn File>, buffer: &[u8]) -> Result<usize> {
     file.write(buffer)
 }
 
-pub fn lseek(file: Arc<dyn File>, offset: usize, whence: SeekPosition) -> Result<usize> {
+pub fn lseek(file: Arc<dyn File>, offset: isize, whence: SeekPosition) -> Result<usize> {
     file.seek(offset, whence)
 }
 
@@ -394,7 +394,7 @@ pub fn mkdir(parent: Arc<DirEntry>, name: &str) -> Result<Arc<DirEntry>> {
         name: name.to_string(),
         inode: dir_inode,
         type_: DirEntryType::Dir,
-        children: Mutex::new(Vec::new()),
+        children: Spinlock::new(Vec::new()),
     }))
 }
 

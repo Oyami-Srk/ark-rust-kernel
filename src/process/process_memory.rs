@@ -1,18 +1,27 @@
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use log::info;
 use crate::memory::{Addr, PAGE_SIZE, PageTable, PhyAddr, PhyPage, PTEFlags, VirtAddr, VirtPageId};
 
 pub struct ProcessMemory {
     page_table: PageTable,
     // TODO: to make CoW, PhyPage could be shared. So Arc may be needed.
-    maps: BTreeMap<VirtPageId, PhyPage>,
+    maps: BTreeMap<VirtPageId, (PhyPage, PTEFlags)>,
     // program binary end. brk should never goes below this
     pub prog_end: VirtAddr,
     // brk is not page aligned. Aligned value is real_brk.
     pub brk: VirtAddr,
-    // stack_base is always aligned
+    // stack_base/stack_top is always aligned
     pub stack_base: VirtAddr,
+    pub stack_top: VirtAddr,
+    /*
+            |   kernel   |
+            | ---------  |
+            | stack top  |
+            | .........  |
+            | stack base |
+     */
 }
 
 impl ProcessMemory {
@@ -29,6 +38,7 @@ impl ProcessMemory {
             prog_end: VirtAddr::from(0),
             brk: VirtAddr::from(0),
             stack_base: VirtAddr::from(0x8000_0000),
+            stack_top: VirtAddr::from(0x8000_0000),
         }
     }
 
@@ -41,9 +51,10 @@ impl ProcessMemory {
     }
 
     pub fn map(&mut self, vpn: VirtPageId, page: PhyPage, flags: PTEFlags) {
+        // info!("[satp {:x}] Map {} to {}",self.page_table.to_satp() ,VirtAddr::from(vpn), PhyAddr::from(page.id));
         // take page
-        self.page_table.map(vpn.clone().into(), page.id.into(), flags);
-        self.maps.insert(vpn, page);
+        self.page_table.map(vpn.clone().into(), page.id.into(), flags.clone());
+        self.maps.insert(vpn, (page, flags));
     }
 
     pub fn set_brk(&mut self, offset: isize) -> usize {
@@ -72,9 +83,9 @@ impl ProcessMemory {
         self.stack_base = stack_base.into();
     }
 
-    pub fn get_mapped_last_page(&self) ->  VirtPageId {
+    pub fn get_mapped_last_page(&self) -> VirtPageId {
         let first_stack_vpn = VirtPageId::from(self.stack_base);
-        let end = self.maps.iter().filter_map( |(vpn,_)| {
+        let end = self.maps.iter().filter_map(|(vpn, _)| {
             if *vpn >= first_stack_vpn {
                 None
             } else {
@@ -82,5 +93,18 @@ impl ProcessMemory {
             }
         }).max_by_key(|p| p.id);
         end.cloned().unwrap_or(VirtPageId::from(0))
+    }
+
+    pub fn copy_from(&mut self, other: &Self, copy_stack: bool) {
+        self.stack_top = other.stack_top;
+        self.stack_base = other.stack_base;
+        self.brk = other.brk;
+        self.prog_end = other.prog_end;
+
+        other.maps.iter().for_each(|(vpn, (page, flags))| {
+            let child_page = PhyPage::alloc();
+            child_page.copy_u8(0, PhyAddr::from(page.id).get_u8(PAGE_SIZE));
+            self.map(vpn.clone(), child_page, flags.clone());
+        });
     }
 }

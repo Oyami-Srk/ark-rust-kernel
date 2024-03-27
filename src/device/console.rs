@@ -30,7 +30,7 @@ pub struct Stdout;
 // struct Stderr;
 
 impl File for Stdin {
-    fn seek(&self, offset: usize, whence: SeekPosition) -> Result<usize> {
+    fn seek(&self, offset: isize, whence: SeekPosition) -> Result<usize> {
         Err("You cannot seek a stream.".into())
     }
 
@@ -50,7 +50,7 @@ impl File for Stdin {
 }
 
 impl File for Stdout {
-    fn seek(&self, offset: usize, whence: SeekPosition) -> Result<usize> {
+    fn seek(&self, offset: isize, whence: SeekPosition) -> Result<usize> {
         Err("You cannot seek a stream.".into())
     }
 

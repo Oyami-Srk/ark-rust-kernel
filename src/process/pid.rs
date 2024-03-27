@@ -6,7 +6,7 @@
 
 use alloc::vec::Vec;
 use lazy_static::lazy_static;
-use crate::core::Mutex;
+use crate::core::Spinlock;
 
 #[derive(PartialEq)]
 pub struct Pid(usize);
@@ -39,7 +39,7 @@ impl RecycleAllocator {
 }
 
 lazy_static! {
-    static ref PID_ALLOCATOR: Mutex<RecycleAllocator> = Mutex::new(RecycleAllocator::new());
+    static ref PID_ALLOCATOR: Spinlock<RecycleAllocator> = Spinlock::new(RecycleAllocator::new());
 }
 
 impl Pid {

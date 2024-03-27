@@ -15,7 +15,7 @@ use crate::interrupt::{disable_trap, enable_trap};
 use crate::startup;
 use crate::process::{Process, TaskContext};
 use crate::interrupt::TrapContext;
-use crate::core::{Mutex, MutexGuard};
+use crate::core::{Spinlock, SpinlockGuard};
 
 
 pub(super) struct CPU {
@@ -26,18 +26,20 @@ pub(super) struct CPU {
 }
 
 lazy_static! {
-    static ref CPUS: Vec<Mutex<CPU>> = (|| {
+    static ref CPUS: Vec<Spinlock<CPU>> = (|| {
         let fdt = startup::get_boot_fdt();
         info!("Totally {} CPU(s) found.", fdt.cpus().count());
         // info!("CPU Freq: {}", fdt.cpus().find_map(|c| Some(c.clock_frequency())).unwrap());
         (0..fdt.cpus().count()).map(|_| {
-            Mutex::new(CPU::new())
-        }).collect::<Vec<Mutex<CPU>>>()
+            Spinlock::new(CPU::new())
+        }).collect::<Vec<Spinlock<CPU>>>()
     })();
 }
 
 
-pub fn init() {}
+pub fn init() {
+    let _ = CPUS.len();
+}
 
 impl CPU {
     pub fn new() -> Self {
@@ -49,7 +51,7 @@ impl CPU {
         }
     }
 
-    pub fn get_current() -> Option<MutexGuard<'static, CPU>> {
+    pub fn get_current() -> Option<SpinlockGuard<'static, CPU>> {
         let core_id = if CPUS.len() == 1 {
             0
         } else {

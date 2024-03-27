@@ -7,13 +7,12 @@
     ld x\n, \n*8(sp)
 .endm
 
-.align 8
-
 .section .text,"ax"
 .global trap_save_s
 .global trap_save_u
 .global trap_ret_u
 
+.align 8
 trap_save_s:
     # 保存
     addi sp, sp, -36*8

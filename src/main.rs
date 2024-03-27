@@ -26,6 +26,7 @@ mod process;
 mod interrupt;
 mod syscall;
 mod filesystem;
+mod config;
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -57,6 +58,7 @@ Ark Rust Kernel ({}), Created by Shiroko, with love and passion.
         interrupt,
         memory,
         startup,
+        cpu,
         filesystem,
         device,
         process

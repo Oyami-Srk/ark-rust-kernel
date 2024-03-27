@@ -1,7 +1,7 @@
-//! # Mutex
+//! # Spinlock
 //!
-//! Mutex implementation in no_std environment
-//! 这个Mutex本身是原子的，所以可以跨CPU持有。但是不能保证在持有Mutex后有其他抢占发生
+//! Spinlock implementation in no_std environment
+//! 该自旋锁本身是原子的，所以可以跨CPU持有。但是不能保证在持有自旋锁后有其他抢占发生
 //! ---
 //! Change log:
 //!   - 2024/03/15: File created.
@@ -12,19 +12,19 @@ use core::cell::UnsafeCell;
 use core::hint;
 use core::ops::{Deref, DerefMut};
 
-pub struct Mutex<T> {
+pub struct Spinlock<T> {
     lock: AtomicBool,
     data: UnsafeCell<T>,
     _marker: PhantomData<T>, // Tell compiler we work as T
 }
 
-pub struct MutexGuard<'a, T: 'a> {
-    lock: &'a Mutex<T>,
+pub struct SpinlockGuard<'a, T: 'a> {
+    lock: &'a Spinlock<T>,
 }
 
 // Mutex Implementation
 
-impl<T> Mutex<T> {
+impl<T> Spinlock<T> {
     pub fn new(data: T) -> Self {
         Self {
             lock: AtomicBool::new(false),
@@ -33,11 +33,11 @@ impl<T> Mutex<T> {
         }
     }
 
-    pub fn lock(&self) -> MutexGuard<T> {
+    pub fn lock(&self) -> SpinlockGuard<T> {
         while self.lock.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
             hint::spin_loop();
         }
-        MutexGuard::new(self)
+        SpinlockGuard::new(self)
     }
 
     pub fn unlock(&self) {
@@ -46,20 +46,20 @@ impl<T> Mutex<T> {
 }
 
 // Mark our Mutex is Send + Sync
-unsafe impl<T> Sync for Mutex<T> {}
+unsafe impl<T> Sync for Spinlock<T> {}
 
-unsafe impl<T> Send for Mutex<T> {}
+unsafe impl<T> Send for Spinlock<T> {}
 
 // Mutex Guard Implementation
-impl<'a, T> MutexGuard<'a, T> {
-    pub fn new(lock: &'a Mutex<T>) -> Self {
+impl<'a, T> SpinlockGuard<'a, T> {
+    pub fn new(lock: &'a Spinlock<T>) -> Self {
         Self {
             lock
         }
     }
 }
 
-impl<'a, T> Deref for MutexGuard<'a, T> {
+impl<'a, T> Deref for SpinlockGuard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -67,13 +67,13 @@ impl<'a, T> Deref for MutexGuard<'a, T> {
     }
 }
 
-impl<'a, T> DerefMut for MutexGuard<'a, T> {
+impl<'a, T> DerefMut for SpinlockGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.lock.data.get() }
     }
 }
 
-impl<'a, T> Drop for MutexGuard<'a, T> {
+impl<'a, T> Drop for SpinlockGuard<'a, T> {
     #[inline]
     fn drop(&mut self) {
         self.lock.unlock();

@@ -1,6 +1,7 @@
 mod id;
 mod file;
 mod utils;
+mod process;
 
 use core::any::Any;
 use core::option::Option;
@@ -48,6 +49,8 @@ pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
         Syscall::write => do_syscall!(file::write, args, 3),
         Syscall::lseek => do_syscall!(file::lseek, args, 3),
         Syscall::close => do_syscall!(file::close, args, 1),
+        /* Process */
+        Syscall::clone => do_syscall!(process::clone, args, 2),
         /* Unknown & Unimplemented */
         Syscall::Unknown => {
             // TODO: kill process

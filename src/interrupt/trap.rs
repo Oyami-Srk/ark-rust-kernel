@@ -13,6 +13,7 @@ use riscv::register::scause::{Exception, Scause, Trap};
 use riscv::register::sstatus::SPP;
 use crate::cpu::CPU;
 use crate::interrupt::interrupt_handler;
+use crate::memory::PAGE_SIZE;
 use crate::syscall::{Syscall, syscall_handler};
 
 global_asm!(include_str!("trap.S"));
@@ -50,6 +51,11 @@ impl TrapContext {
             kernel_sp: 0,
         }
     }
+
+    pub fn copy_from(&mut self, other: &Self) {
+        self.sepc = other.sepc;
+        self.reg.copy_from_slice(&other.reg);
+    }
 }
 
 pub fn set_interrupt_to_kernel() {
@@ -79,12 +85,37 @@ pub fn disable_trap() {
     unsafe { sstatus::clear_sie() }
 }
 
-fn exception_handler(exp: scause::Exception, sstatus: sstatus::Sstatus, sepc: usize, stval: usize) {
+fn exception_handler(trap_context:&TrapContext, exp: scause::Exception, sstatus: sstatus::Sstatus, sepc: usize, stval: usize, from_user: bool) {
     // TODO: handle page fault
 
     error!("Exception {:?} from {}: spec: {:#x}, stval: {:#x}", exp,
         if let SPP::User = sstatus.spp() { "user" } else { "kernel" },
         sepc, stval);
+
+    if from_user && let Some(proc) = CPU::get_current().unwrap().get_process() {
+        error!("Happened on PID {}", proc.pid.pid());
+    }
+
+    unsafe {
+        extern "C" {
+            fn boot_sp();
+        }
+        let stop = if let Some(proc) = CPU::get_current().unwrap().get_process() {
+            proc.data.lock().kernel_stack[0].id.id * PAGE_SIZE
+        } else {
+            boot_sp as usize
+        };
+        let mut fp = trap_context.reg[TrapContext::s0];
+        error!("======== RISCV Backtrace ========");
+        for i in 0..10 {
+            if fp == stop || fp == 0 {
+                break;
+            }
+            error!("#{}:ra={:#x}", i, *((fp - 8) as *const usize));
+            fp = *((fp - 16) as *const usize);
+        }
+        error!("=================================");
+    }
 
     let _ = sbi::system_reset::system_reset(
         sbi::system_reset::ResetType::Shutdown,
@@ -102,6 +133,7 @@ fn exception_handler(exp: scause::Exception, sstatus: sstatus::Sstatus, sepc: us
 
 #[no_mangle]
 fn user_trap_handler(trap_context: &TrapContext) {
+    set_interrupt_to_kernel();
     let scause = scause::read();
     let stval = stval::read();
     let sepc = sepc::read();
@@ -130,13 +162,12 @@ fn user_trap_handler(trap_context: &TrapContext) {
                     let id = trap_context.reg[17];
                     drop(proc_data); // FIXME: trap_context outlive proc_data
 
+                    trap_context.sepc += 4;
                     let ret = syscall_handler(Syscall::from(id), &args);
                     trap_context.reg[10] = ret;
-
-                    trap_context.sepc += 4;
                 }
                 _ => {
-                    exception_handler(exp, sstatus, sepc, stval);
+                    exception_handler(trap_context, exp, sstatus, sepc, stval, true);
                 }
             }
         }
@@ -182,7 +213,7 @@ fn kernel_trap_handler(trap_context: &TrapContext) {
             interrupt_handler(int);
         }
         Trap::Exception(exp) => {
-            exception_handler(exp, sstatus, sepc, stval);
+            exception_handler(trap_context, exp, sstatus, sepc, stval, false);
         }
     }
 }

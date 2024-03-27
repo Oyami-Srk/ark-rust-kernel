@@ -29,6 +29,8 @@ chrono = "0.4.35"
 # Use panic=abort to disable unwinding of panic and reduce binary size, therefore eh_personality is not required.
 [profile.dev]
 panic = "abort"
+lto = "fat"
 
 [profile.release]
 panic = "abort"
+lto = "fat"

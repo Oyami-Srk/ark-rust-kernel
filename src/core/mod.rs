@@ -6,9 +6,9 @@
 //! Change log:
 //!   - 2024/03/15: File created.
 
-mod mutex;
+mod spinlock;
 mod interrupt_safe_cell;
 
-pub use mutex::{Mutex ,MutexGuard};
+pub use spinlock::{Spinlock, SpinlockGuard};
 pub use interrupt_safe_cell::{InterruptSafeCell};
 

@@ -3,7 +3,7 @@ target = "riscv64gc-unknown-none-elf"
 
 [target.riscv64gc-unknown-none-elf]
 runner = """qemu-system-riscv64
- -machine virt -cpu rv64 -d guest_errors,unimp
+ -machine virt -d guest_errors,unimp
  -smp 1 -m 128M
  -nographic
  -serial mon:stdio
@@ -12,5 +12,5 @@ runner = """qemu-system-riscv64
  -kernel
 """
 rustflags = [
-    "-Clink-arg=-Tsrc/kernel.ld", "-Cforce-frame-pointers=yes"
+    "-Clink-arg=-Tsrc/kernel.ld", "-Cforce-frame-pointers=yes", "-Zemit-stack-sizes"
 ]

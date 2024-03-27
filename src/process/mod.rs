@@ -11,6 +11,7 @@ mod process;
 mod task;
 // kernel task
 mod process_memory;
+mod condvar;
 
 
 use alloc::sync::Arc;
@@ -18,7 +19,7 @@ use alloc::vec::Vec;
 use lazy_static::lazy_static;
 use log::info;
 use riscv::asm::wfi;
-use crate::core::Mutex;
+use crate::core::Spinlock;
 
 pub use process::{Process, ProcessData, ProcessStatus, ProcessManager};
 pub use task::{TaskContext};
@@ -30,7 +31,7 @@ use crate::memory::{Addr, PAGE_SIZE, PhyAddr, PhyPage, PTEFlags, VirtAddr, VirtP
 pub use task::{context_switch, do_yield};
 
 lazy_static! {
-    static ref PROCESS_MANAGER: Mutex<ProcessManager> = Mutex::new(ProcessManager::new());
+    static ref PROCESS_MANAGER: Spinlock<ProcessManager> = Spinlock::new(ProcessManager::new());
 }
 
 fn fill_proc_test(proc: Arc<Process>, proc_binary: &[u8]) {
@@ -95,7 +96,6 @@ fn load_from_elf(proc: Arc<Process>, elf_binary: &[u8]) {
                 };
                 page.copy_u8(inpage_offset, &data[begin..end]);
                 let vpn: VirtPageId = VirtAddr::from(ph.virtual_addr() as usize + PAGE_SIZE * pg).into();
-                info!("Map VA {:#x}.", vpn.id * PAGE_SIZE);
                 memory.map(vpn, page, flags);
             }
         }
@@ -110,6 +110,12 @@ fn load_from_elf(proc: Arc<Process>, elf_binary: &[u8]) {
     ctx.reg[TrapContext::sp] = 0x8000_0000;
     // Setup entry point
     ctx.sepc = elf.header.pt2.entry_point() as usize;
+}
+
+pub fn fork(child_stack: *const u8) -> usize {
+    let child_pid = PROCESS_MANAGER.lock().fork(child_stack);
+    do_yield(); // yield parent
+    child_pid
 }
 
 pub fn init() {

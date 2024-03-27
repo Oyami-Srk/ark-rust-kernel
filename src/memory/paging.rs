@@ -1,14 +1,16 @@
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::mem::size_of;
 use bitflags::{bitflags, Flags};
 use lazy_static::lazy_static;
 use log::info;
 use riscv::asm::sfence_vma_all;
 use riscv::register::{satp, sstatus};
-use crate::core::Mutex;
+use crate::core::Spinlock;
 use crate::interrupt::enable_trap;
 use crate::memory::address::{VirtAddr, VirtPageId, Addr};
+use crate::memory::PAGE_SIZE;
 use super::{PhyPageId, PhyPage, PhyAddr};
 
 bitflags! {
@@ -72,6 +74,7 @@ impl PageTable {
     pub fn new() -> Self {
         // FIXME: 这里的alloc没有清零，放到实体机会bug
         let page = Arc::new(PhyPage::alloc());
+        // PhyAddr::from(page.id).get_slice_mut::<usize>(PAGE_SIZE / size_of::<usize>()).iter_mut().for_each(|cell| *cell = 0);
         Self {
             entries: page.clone(),
             pages: vec![page],
@@ -120,7 +123,7 @@ impl PageTable {
 
     pub fn map(&mut self, va: VirtAddr, pa: PhyAddr, flags: PTEFlags) {
         let pte = self.find_pte_create(VirtPageId::from(va)).unwrap();
-        assert!(!pte.valid(), "{} is already mapped.", va);
+        assert!(!pte.valid(), "{} is already mapped to {}.", va, PhyAddr::from(pte.page_id()));
         *pte = PageTableEntry::new(PhyPageId::from(pa), flags | PTEFlags::V);
     }
 
@@ -151,7 +154,7 @@ impl PageTable {
 }
 
 lazy_static! {
-    static ref KERNEL_PAGE_TABLE: Mutex<PageTable> = Mutex::new(PageTable::new());
+    static ref KERNEL_PAGE_TABLE: Spinlock<PageTable> = Spinlock::new(PageTable::new());
 }
 
 pub fn init() {

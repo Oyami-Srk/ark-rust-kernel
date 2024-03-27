@@ -117,7 +117,7 @@ pub fn lseek(fd: usize, offset: usize, whence: usize) -> usize {
         return -1isize as usize;
     }
     if let Some(file) = &proc_data.files[fd] {
-        let pos = fs::lseek(file.clone(), offset, whence);
+        let pos = fs::lseek(file.clone(), offset as isize, whence);
         if let Ok(pos) = pos {
             pos
         } else {
