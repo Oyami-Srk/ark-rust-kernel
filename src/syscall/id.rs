@@ -35,6 +35,8 @@ pub enum Syscall{
     sched_yield = 124,
     gettimeofday = 169,
     nanosleep = 101,
+    /* Custom syscall */
+    ark_sleep_ticks = 1002,
 
     Unknown = usize::MAX
 }

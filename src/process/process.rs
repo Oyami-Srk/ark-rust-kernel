@@ -11,7 +11,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::mem::size_of;
 use fdt::standard_nodes::Memory;
-use log::warn;
+use log::{info, warn};
 use riscv::register::mcause::Trap;
 use crate::core::Spinlock;
 use crate::cpu::CPU;
@@ -92,6 +92,13 @@ impl Process {
     }
 }
 
+impl Drop for Process {
+    fn drop(&mut self) {
+        info!("Dropping process {} at {:x}", self.pid.pid(), self as *const Process as usize);
+        todo!()
+    }
+}
+
 pub struct ProcessManager {
     process_list: BTreeMap<usize, Arc<Process>>,
     previous_scheduled_pid: usize,
@@ -107,6 +114,7 @@ impl ProcessManager {
 
     pub fn spawn(&mut self) -> Arc<Process> {
         let proc = Arc::new(Process::new());
+        // info!("Process at {:x}", proc.as_ref() as *const Process as usize);
         self.process_list.insert(proc.pid.pid(), proc.clone());
         proc
     }

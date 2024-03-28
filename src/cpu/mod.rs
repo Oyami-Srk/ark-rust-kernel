@@ -83,8 +83,8 @@ impl CPU {
         }
     }
 
-    pub fn set_process(&mut self, proc: Arc<Process>) {
-        self.proc = Some(proc);
+    pub fn set_process(&mut self, proc: Option<Arc<Process>>) {
+        self.proc = proc;
     }
 
     pub fn unset_process(&mut self) {

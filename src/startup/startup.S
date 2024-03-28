@@ -40,7 +40,7 @@ _start:
 .section .bss.boot_stack
 .global boot_stack
 boot_stack:
-    # 128KB kernel boot stack For ecah core (assume there would be maximum 4 cores)
-    .space 1024 * 128 * 4
+    # 512KB kernel boot stack For ecah core (assume there would be maximum 4 cores)
+    .space 1024 * 512 * 4
 .global boot_sp
 boot_sp:

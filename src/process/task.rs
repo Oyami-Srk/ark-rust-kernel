@@ -5,7 +5,9 @@
 //! Change log:
 //!   - 2024/03/19: File created.
 
+use alloc::sync::Arc;
 use core::arch::global_asm;
+use log::info;
 use crate::cpu::CPU;
 use crate::process::ProcessStatus;
 global_asm!(include_str!("switch.S"));
@@ -46,7 +48,7 @@ extern "C" {
 }
 
 pub fn do_yield() {
-    let cpu = CPU::get_current().unwrap();
+    let mut cpu = CPU::get_current().unwrap();
     let trap_enabled = cpu.get_trap_enabled();
     let proc = cpu.get_process().unwrap();
     let mut proc_data = proc.data.lock();
@@ -59,7 +61,9 @@ pub fn do_yield() {
     let old_ctx = &mut proc_data.kernel_task_context as *mut TaskContext;
     let new_ctx = cpu.get_context();
     drop(proc_data); // FIXME: old_ctx outlived with proc_data
+    cpu.set_process(None);
     drop(cpu);
+    // info!("Do Yield for process {} at {:x}", proc.pid.pid(), proc.as_ref() as *const crate::process::Process as usize);
 
     unsafe { context_switch(old_ctx, new_ctx) };
 

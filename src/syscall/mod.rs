@@ -2,6 +2,7 @@ mod id;
 mod file;
 mod utils;
 mod process;
+mod custom;
 
 use core::any::Any;
 use core::option::Option;
@@ -51,6 +52,8 @@ pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
         Syscall::close => do_syscall!(file::close, args, 1),
         /* Process */
         Syscall::clone => do_syscall!(process::clone, args, 2),
+        /* Custon */
+        Syscall::ark_sleep_ticks => do_syscall!(custom::sleep_ticks, args, 1),
         /* Unknown & Unimplemented */
         Syscall::Unknown => {
             // TODO: kill process

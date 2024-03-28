@@ -23,6 +23,7 @@ use crate::core::Spinlock;
 
 pub use process::{Process, ProcessData, ProcessStatus, ProcessManager};
 pub use task::{TaskContext};
+pub use condvar::Condvar;
 pub use pid::Pid;
 use crate::cpu::CPU;
 use crate::init;
@@ -145,7 +146,7 @@ pub fn worker() -> ! {
             let new_ctx = &proc_data.kernel_task_context as *const TaskContext;
             drop(proc_data);
 
-            cpu.set_process(proc);
+            cpu.set_process(Some(proc));
 
             // switch to proc task context
             let cpu_task_context = cpu.get_context_mut();
