@@ -15,11 +15,11 @@ use log::{info, warn};
 use riscv::register::mcause::Trap;
 use crate::core::Spinlock;
 use crate::cpu::CPU;
-use crate::filesystem::{DirEntry, DirEntryType, File, get_root};
+use crate::filesystem::{DirEntry, DirEntryType, File};
 use crate::interrupt::{enable_trap, TrapContext, user_trap_returner};
 use super::pid::Pid;
 use crate::{config, memory};
-use crate::memory::{PAGE_SIZE, PageTable, PhyAddr, PhyPage, PhyPageId, PTEFlags, VirtAddr};
+use crate::memory::{PAGE_SIZE, PageTable, PhyAddr, PhyPage, PhyPageId, PTEFlags, VirtAddr, Addr};
 use crate::process::{do_yield, PROCESS_MANAGER, TaskContext};
 use crate::process::condvar::Condvar;
 use super::process_memory::ProcessMemory;
@@ -74,7 +74,7 @@ impl Process {
             kernel_stack,
             kernel_task_context,
             memory,
-            cwd: get_root(),
+            cwd: DirEntry::root(),
             files: Vec::new(),
         };
         let trap_context = process_data.get_trap_context();

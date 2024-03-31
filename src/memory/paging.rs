@@ -74,7 +74,7 @@ impl PageTable {
     pub fn new() -> Self {
         // FIXME: 这里的alloc没有清零，放到实体机会bug
         let page = Arc::new(PhyPage::alloc());
-        // PhyAddr::from(page.id).get_slice_mut::<usize>(PAGE_SIZE / size_of::<usize>()).iter_mut().for_each(|cell| *cell = 0);
+        PhyAddr::from(page.id).get_slice_mut::<usize>(PAGE_SIZE / size_of::<usize>()).iter_mut().for_each(|cell| *cell = 0);
         Self {
             entries: page.clone(),
             pages: vec![page],
@@ -139,6 +139,23 @@ impl PageTable {
         *pte = PageTableEntry::new(PhyPageId::from(pa.addr >> 12), flags | PTEFlags::V);
     }
 
+    pub fn map_many(&mut self, va: VirtAddr, pa: PhyAddr, size: usize, flags: PTEFlags) {
+        // pa must continuous
+        for pg in 0..size / PAGE_SIZE {
+            self.map(
+                va.to_offset((PAGE_SIZE * pg) as isize),
+                pa.to_offset((PAGE_SIZE * pg) as isize),
+                flags);
+        }
+    }
+
+    pub fn unmap_many(&mut self, va:VirtAddr, size: usize) {
+        // va must continuous
+        for pg in 0..size / PAGE_SIZE {
+            self.unmap(va);
+        }
+    }
+
     pub fn to_satp(&self) -> usize {
         (self.entries.id.id | 8usize << 60)
     }
@@ -169,4 +186,8 @@ pub fn init() {
     satp::write(v);
     sfence_vma_all();
     info!("Paging init complete.");
+}
+
+pub fn get_kernel_page_table() -> &'static Spinlock<PageTable> {
+    &KERNEL_PAGE_TABLE
 }

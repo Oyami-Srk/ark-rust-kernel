@@ -20,3 +20,11 @@ macro_rules! do_init {
         )*
     );
 }
+
+pub fn round_up_to(value: usize, to: usize) -> usize {
+    ((value + (to - 1)) & !(to - 1)).into()
+}
+
+pub fn round_down_to(value: usize, to: usize) -> usize {
+    (value & !(to - 1)).into()
+}

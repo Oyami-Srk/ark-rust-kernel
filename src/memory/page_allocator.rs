@@ -14,21 +14,21 @@ use log::{info, trace};
 use crate::core::Spinlock;
 use crate::memory::{Addr, PAGE_SIZE};
 use crate::startup;
+use crate::config::{KERNEL_HEAP_SIZE_IN_MEM, KERNEL_HEAP_SIZE_EARLY};
 use super::address::{PhyAddr, PhyPageId};
 
 /* Heap allocator */
 
-const KERNEL_HEAP_SIZE: usize = 1024 * 1024 * 2; // 2 MB early kernel heap size
-
 #[global_allocator]
 static HEAP_ALLOCATOR: LockedHeap<32> = LockedHeap::empty();
+// TODO: make a heap allocator failed handler.
 
-static mut KERNEL_HEAP_SPACE: [u8; KERNEL_HEAP_SIZE] = [0; KERNEL_HEAP_SIZE];
+static mut KERNEL_HEAP_SPACE: [u8; KERNEL_HEAP_SIZE_EARLY] = [0; KERNEL_HEAP_SIZE_EARLY];
 
 pub fn init() {
     // TODO: Use our own page allocator to do CoW and reference
     unsafe {
-        HEAP_ALLOCATOR.lock().init(KERNEL_HEAP_SPACE.as_ptr().addr(), KERNEL_HEAP_SIZE);
+        HEAP_ALLOCATOR.lock().init(KERNEL_HEAP_SPACE.as_ptr().addr(), KERNEL_HEAP_SIZE_EARLY);
     }
     unsafe {
         let start_page_id = PhyPageId::from(startup::get_boot_memory_info().usable_start) + 1;
@@ -36,16 +36,18 @@ pub fn init() {
         info!("Add {} to {} to PageAllocator, totally {} pages.", start_page_id, end_page_id, end_page_id.id - start_page_id.id);
         PAGE_ALLOCATOR.lock().add_frame(start_page_id.id, end_page_id.id);
     }
+    // Allocate 8 MB kernel heap
+    let pages = PAGE_ALLOCATOR.lock().alloc(KERNEL_HEAP_SIZE_IN_MEM / PAGE_SIZE).unwrap();
+    let paddr = PhyAddr::from(PhyPageId::from(pages));
+    unsafe {
+        HEAP_ALLOCATOR.lock().add_to_heap(paddr.get_addr(), paddr.to_offset(KERNEL_HEAP_SIZE_IN_MEM as isize).get_addr());
+    }
 }
 
 /* Min-heap page allocator */
-struct PageAreas {
+struct PageAreas {}
 
-}
-
-struct MinHeapPageAllocator {
-
-}
+struct MinHeapPageAllocator {}
 /*
 impl MinHeapPageAllocator {
     pub fn new() -> Self {
@@ -131,3 +133,10 @@ impl Drop for PhyPage {
     }
 }
 
+pub unsafe fn alloc_page_without_trace(count: usize) -> usize {
+    PAGE_ALLOCATOR.lock().alloc(count).unwrap()
+}
+
+pub unsafe fn dealloc_page_without_trace(first_page_id: usize, count: usize) {
+    PAGE_ALLOCATOR.lock().dealloc(first_page_id, count)
+}

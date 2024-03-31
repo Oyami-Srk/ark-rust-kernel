@@ -11,8 +11,8 @@ mod paging;
 
 use log::info;
 pub use address::{PhyAddr, PhyPageId, VirtAddr, VirtPageId, Addr};
-pub use page_allocator::PhyPage;
-pub use paging::{PageTable, PTEFlags};
+pub use page_allocator::{PhyPage, alloc_page_without_trace, dealloc_page_without_trace};
+pub use paging::{PageTable, PTEFlags, get_kernel_page_table};
 
 pub const PAGE_SIZE: usize = 4096;
 

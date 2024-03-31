@@ -180,7 +180,12 @@ impl Display for VirtPageId {
 }
 
 pub trait Addr: Sized + From<usize> {
+    #[inline]
     fn get_addr(&self) -> usize;
+
+    fn is_null(&self) -> bool {
+        self.get_addr() == 0
+    }
 
     fn round_up_to(&self, to: usize) -> Self {
         ((self.get_addr() + (to - 1)) & !(to - 1)).into()
@@ -210,42 +215,39 @@ pub trait Addr: Sized + From<usize> {
         };
         Self::from(addr)
     }
-}
 
-impl PhyAddr {
-    /* Unsafe wrapper */
-    pub fn get_ref<T>(&self) -> &'static T {
+    fn get_ref<T>(&self) -> &'static T {
         // Reference about a address is live forever.
-        unsafe { (self.addr as *const T).as_ref().expect("Try to get reference to null") }
+        unsafe { (self.get_addr() as *const T).as_ref().expect("Try to get reference to null") }
     }
 
-    pub fn get_ref_mut<T>(&self) -> &'static mut T {
-        unsafe { (self.addr as *mut T).as_mut().expect("Try to get mutable reference to null") }
+    fn get_ref_mut<T>(&self) -> &'static mut T {
+        unsafe { (self.get_addr() as *mut T).as_mut().expect("Try to get mutable reference to null") }
     }
 
-    pub fn get_slice<T>(&self, len: usize) -> &'static [T] {
-        unsafe { core::slice::from_raw_parts(self.addr as *mut T, len) }
+    fn get_slice<T>(&self, len: usize) -> &'static [T] {
+        unsafe { core::slice::from_raw_parts(self.get_addr() as *mut T, len) }
     }
 
-    pub fn get_slice_mut<T>(&self, len: usize) -> &'static mut [T] {
-        unsafe { core::slice::from_raw_parts_mut(self.addr as *mut T, len) }
+    fn get_slice_mut<T>(&self, len: usize) -> &'static mut [T] {
+        unsafe { core::slice::from_raw_parts_mut(self.get_addr() as *mut T, len) }
     }
 
-    pub fn get_u8(&self, len: usize) -> &'static [u8] {
+    fn get_u8(&self, len: usize) -> &'static [u8] {
         self.get_slice(len)
     }
 
-    pub fn get_u8_mut(&self, len: usize) -> &'static mut [u8] {
+    fn get_u8_mut(&self, len: usize) -> &'static mut [u8] {
         self.get_slice_mut(len)
     }
 
-    pub fn get_str(&self, len: usize) ->&'static str{
+    fn get_str(&self, len: usize) -> &'static str {
         core::str::from_utf8(self.get_u8(len)).unwrap()
     }
 
-    pub fn get_cstr(&self) -> &'static str {
+    fn get_cstr(&self) -> &'static str {
         let mut length = 0;
-        let mut temp_ptr = self.addr as *const u8;
+        let mut temp_ptr = self.get_addr() as *const u8;
         unsafe {
             while *temp_ptr != 0 {
                 length += 1;

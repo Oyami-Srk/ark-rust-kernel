@@ -9,6 +9,7 @@
 #![no_std]
 #![feature(panic_info_message, fmt_internals, strict_provenance, error_in_core, macro_metavar_expr)]
 #![feature(let_chains)]
+#![feature(get_mut_unchecked)]
 
 #![allow(dead_code)] // Development only
 #![allow(warnings)]
@@ -27,6 +28,8 @@ mod interrupt;
 mod syscall;
 mod filesystem;
 mod config;
+
+use interrupt::plic as plic;
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -58,6 +61,7 @@ Ark Rust Kernel ({}), Created by Shiroko, with love and passion.
         interrupt,
         memory,
         startup,
+        plic,
         cpu,
         filesystem,
         device,

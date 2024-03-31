@@ -14,12 +14,17 @@ mod process_memory;
 mod condvar;
 
 
+use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
+use core::mem::size_of;
 use lazy_static::lazy_static;
 use log::info;
 use riscv::asm::wfi;
-use crate::core::Spinlock;
+use riscv::register::mcause::Trap;
+use riscv::register::medeleg::clear_supervisor_env_call;
+use crate::core::{Spinlock, SpinlockGuard};
 
 pub use process::{Process, ProcessData, ProcessStatus, ProcessManager};
 pub use task::{TaskContext};
@@ -30,6 +35,7 @@ use crate::init;
 use crate::interrupt::{enable_trap, TrapContext};
 use crate::memory::{Addr, PAGE_SIZE, PhyAddr, PhyPage, PTEFlags, VirtAddr, VirtPageId};
 pub use task::{context_switch, do_yield};
+use crate::filesystem::{File, SeekPosition};
 
 lazy_static! {
     static ref PROCESS_MANAGER: Spinlock<ProcessManager> = Spinlock::new(ProcessManager::new());
@@ -87,6 +93,7 @@ fn load_from_elf(proc: Arc<Process>, elf_binary: &[u8]) {
             for pg in 0..pg_count {
                 // FIXME: non-continuous page could cause UK transfer error.
                 let page = PhyPage::alloc(); // continuous page is not required for user program.
+                // info!("Copy 0x{:x} to 0x{:x}", ph.virtual_addr(), page.id.id * PAGE_SIZE);
 
                 let begin = if pg == 0 { 0 } else { PAGE_SIZE * pg - offset };
                 let inpage_offset = if pg == 0 { offset } else { 0 };
@@ -117,6 +124,97 @@ pub fn fork(child_stack: *const u8) -> usize {
     let child_pid = PROCESS_MANAGER.lock().fork(child_stack);
     do_yield(); // yield parent
     child_pid
+}
+
+pub fn execve(file: Arc<dyn File>, proc: Arc<Process>, argv: Vec<String>, env: Vec<String>) -> usize {
+    let file_size = file.seek(0, SeekPosition::End).unwrap();
+    file.seek(0, SeekPosition::Set).unwrap();
+    let mut binary_vec = vec![0u8; file_size];
+    let read_size = file.read(binary_vec.as_mut_slice()).unwrap();
+    assert_eq!(read_size, file_size, "Read size not equal to file size.");
+    let binary_slice = binary_vec.as_slice();
+    let binary_ptr = binary_slice.as_ptr();
+    // clear old user space
+    proc.data.lock().memory.reset();
+    // load new
+    load_from_elf(proc.clone(), binary_slice);
+    // setup argv and env
+    let mut proc_data = proc.data.lock();
+    let context = proc_data.get_trap_context();
+    let virt_sp = context.reg[TrapContext::sp];
+    let stack_bottom = VirtAddr::from(virt_sp - PAGE_SIZE)
+        .into_pa(proc_data.memory.get_pagetable()).to_offset(PAGE_SIZE as isize);
+    let mut sp = stack_bottom.clone(); // sp always point a 'valid' data if any valid data available.
+
+    let mut env_table: Vec<*const u8> = vec![];
+    for a in env {
+        let len = a.len();
+        sp = sp.to_offset(-1);
+        sp.get_slice_mut::<u8>(1)[0] = 0u8;
+        sp = sp.to_offset(-(len as isize));
+        sp.get_slice_mut::<u8>(len).copy_from_slice(a.as_bytes());
+        let offset = stack_bottom.get_addr() - sp.get_addr();
+        env_table.push((virt_sp - offset) as *const u8);
+    }
+    env_table.push(0 as *const u8);
+    sp = sp.round_down_to(size_of::<usize>());
+
+    let mut argv_table: Vec<*const u8> = vec![];
+    for a in argv {
+        let len = a.len();
+        sp = sp.to_offset(-1);
+        sp.get_slice_mut::<u8>(1)[0] = 0u8;
+        sp = sp.to_offset(-(len as isize));
+        sp.get_slice_mut::<u8>(len).copy_from_slice(a.as_bytes());
+        let offset = stack_bottom.get_addr() - sp.get_addr();
+        argv_table.push((virt_sp - offset) as *const u8);
+    }
+    argv_table.push(0 as *const u8);
+    sp = sp.round_down_to(size_of::<usize>());
+
+    sp = sp.to_offset(-((size_of::<*const u8>() * env_table.len()) as isize));
+    sp.get_slice_mut::<*const u8>(env_table.len()).copy_from_slice(env_table.as_slice());
+    let envp = virt_sp - (stack_bottom.get_addr() - sp.get_addr());
+    sp = sp.to_offset(-((size_of::<*const u8>() * argv_table.len()) as isize));
+    sp.get_slice_mut::<*const u8>(argv_table.len()).copy_from_slice(argv_table.as_slice());
+    let argv = virt_sp - (stack_bottom.get_addr() - sp.get_addr());
+
+    // push envp, argv, argc
+    sp = sp.to_offset(-(size_of::<*const u8>() as isize));
+    *(sp.get_ref_mut::<*const u8>()) = envp as *const u8;
+    sp = sp.to_offset(-(size_of::<*const u8>() as isize));
+    *(sp.get_ref_mut::<*const u8>()) = argv as *const u8;
+    sp = sp.to_offset(-(size_of::<*const u8>() as isize));
+    *(sp.get_ref_mut::<*const u8>()) = (argv_table.len() - 1) as *const u8;
+
+    let virt_sp = virt_sp - (stack_bottom.get_addr() - sp.get_addr());
+
+    /* stack should be like:
+     * |  0x80000000  | <--- Stack base
+     * +--------------+
+     * | env strings  |
+     * |    padding   |
+     * | arg strings  |
+     * |    padding   |
+     * +--------------+
+     * |  TODO: auxv table  |
+     * |  envp table  |
+     * |  argv table  |
+     * +--------------+
+     * |     envp     |
+     * |     argv     |
+     * |     argc     |
+     * +--------------+
+     * |      sp      | <--- user stack top
+     */
+
+    // setup context
+    context.reg[TrapContext::sp] = virt_sp;
+    context.reg[TrapContext::a1] = argv;
+    context.reg[TrapContext::a2] = envp;
+    context.satp = proc_data.memory.get_satp();
+
+    argv_table.len() - 1 // jump to switch with argc as a0
 }
 
 pub fn init() {

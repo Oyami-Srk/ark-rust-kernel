@@ -1,3 +1,4 @@
+use core::any::Any;
 use core::error::Error;
 use core::fmt::{Debug, Display, Formatter};
 
@@ -16,6 +17,7 @@ impl Display for KernelError {
 }
 
 impl Error for KernelError {}
+
 
 pub type Result<T> = core::result::Result<T, KernelError>;
 pub type EmptyResult = Result<()>;

@@ -1,5 +1,7 @@
 /* Structs */
 
+mod fatfs_no;
+
 use crate::core::Spinlock;
 use core::iter::Peekable;
 use alloc::boxed::Box;
@@ -11,15 +13,16 @@ use alloc::vec::Vec;
 use core::cell::OnceCell;
 use core::fmt::{Debug, Display, Formatter};
 use core::ops::Deref;
+use ::fatfs::Dir;
 use bitflags::{bitflags, Flags};
-use fatfs::{Dir, Seek};
 use log::info;
 use lazy_static::lazy_static;
 use num_derive::{FromPrimitive, ToPrimitive};
+use virtio_drivers::device::socket::SocketError;
 use crate::{do_init, println};
 use crate::utils::error::{Result, EmptyResult};
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum DirEntryType {
     File,
     Dir,
@@ -38,7 +41,7 @@ impl Debug for DirEntry {
         write!(f, "[DirEntry({}) {}]", match &self.type_ {
             &DirEntryType::File => "File",
             &DirEntryType::Dir => "Dir"
-        }, get_dentry_fullpath(self))
+        }, self.fullpath())
     }
 }
 
@@ -143,14 +146,14 @@ pub trait Superblock {
 // 1 FS has ONE FS
 pub trait Filesystem {
     fn new() -> Self where Self: Sized;
-    fn mount(&self, device: Option<Arc<dyn File>>) -> Result<Arc<dyn Inode>>;
+    fn mount(&self, device: Option<Arc<dyn File>>, mount_point: Arc<DirEntry>) -> Result<Arc<dyn Inode>>;
 }
 
 pub trait File {
     fn seek(&self, offset: isize, whence: SeekPosition) -> Result<usize>;
-    fn read(&self, len: usize) -> Result<Vec<u8>>;
+    fn read(&self, buf: &mut [u8]) -> Result<usize>;
     fn write(&self, buf: &[u8]) -> Result<usize>;
-    fn close(&mut self);
+    fn close(&self) -> EmptyResult;
     fn get_dentry(&self) -> Arc<DirEntry>;
 }
 
@@ -170,15 +173,15 @@ impl File for DirFile {
         Ok(iterator.unwrap_or(0))
     }
 
-    fn read(&self, len: usize) -> Result<Vec<u8>> {
-        Ok(vec![])
+    fn read(&self, buf: &mut [u8]) -> Result<usize> {
+        Ok(0)
     }
 
     fn write(&self, buf: &[u8]) -> Result<usize> {
         Ok(0)
     }
 
-    fn close(&mut self) {}
+    fn close(&self) -> EmptyResult { Ok(()) }
 
     fn get_dentry(&self) -> Arc<DirEntry> {
         self.dentry.clone()
@@ -205,203 +208,225 @@ pub fn init() {
         type_: DirEntryType::Dir,
     });
     // Safety: Only write here once
-    unsafe { ROOT_DENTRY = Some(root_dentry) };
+    unsafe { ROOT_DENTRY = Some(root_dentry.clone()) };
+    // Create /dev
+    root_dentry.mkdir("dev").expect("Failed to create /dev on vfs.");
+
+    do_init!(
+        fatfs_no
+    );
+}
+
+pub fn mount(cwd: Option<Arc<DirEntry>>, dev: &str, mount_point: &str, filesystem: &str) -> EmptyResult {
+    // get filesystem
+    let fss = FILESYSTEMS.lock();
+    let fs = fss.get(filesystem).ok_or("Filesystem Not Found")?;
+    // get dev
+    let dev = DirEntry::from_path(dev, cwd.clone()).ok_or("Device Not Found")?;
+    // get mount_point
+    let mut mount_point = DirEntry::from_path(mount_point, cwd.clone()).ok_or("Mount Point Not Found")?;
+    // check if mount_point is a dir
+    if mount_point.type_ != DirEntryType::Dir {
+        return Err("Mount Point is not a directory.".into());
+    }
+    // check if mount_point is empty
+    if mount_point.children.lock().len() != 0 {
+        return Err("Mount Point is not empty.".into());
+    }
+    // FIXME: Check if already mounted.
+
+    // Open device file
+    let dev = dev.open(FileOpenFlags::ReadWrite, FileModes::from_bits(0).unwrap())?;
+    // mount filesystem
+    let root_inode = fs.mount(Some(dev), mount_point.clone())?;
+    // mount to dentry
+    unsafe {
+        Arc::get_mut_unchecked(&mut mount_point).inode = Some(root_inode);
+    }
+    Ok(())
 }
 
 /*
     Filesystem子系统负责管理DirEntry。其他部分交由具体的FS实现Inode和File部分。
  */
+impl DirEntry {
+    pub fn root() -> Arc<DirEntry> {
+        // Safety: ROOT_DENTRY is immutable after fs::init
+        return unsafe { ROOT_DENTRY.as_ref().unwrap() }.clone();
+    }
 
-pub fn get_parent_dentry(path: &str, cwd: Option<Arc<DirEntry>>) -> Option<(Arc<DirEntry>, &str)> {
-    let root_dentry_arc = get_root();
-    let (cwd, path) = if let Some(cwd) = cwd && !path.starts_with("/") {
-        (cwd, path)
-    } else {
-        (root_dentry_arc.clone(), if path.starts_with("/") {
-            &path[1..]
+    fn get_parent(path: &str, cwd: Option<Arc<DirEntry>>) -> Option<(Arc<DirEntry>, &str)> {
+        let root_dentry_arc = Self::root();
+        let (cwd, path) = if let Some(cwd) = cwd && !path.starts_with("/") {
+            (cwd, path)
         } else {
-            path
-        })
-    };
-
-    let mut paths = path.split("/").peekable();
-    let mut parent = cwd;
-    while let Some(name) = paths.next() {
-        if paths.peek().is_none() {
-            // last name
-            return Some((parent, name));
-        }
-        if name == ".." {
-            parent = parent.parent.as_ref().map(|p| p.upgrade().expect("Parent not found."))
-                .unwrap_or(root_dentry_arc.clone());
-        } else if name == "." || name.len() == 0 {
-            // do nothing
-        } else {
-            // do search deep
-            let mut new_parent = None;
-            'found: loop {
-                let children = parent.children.lock();
-                for child in children.iter() {
-                    if child.name == name {
-                        new_parent = Some(child.clone());
-                        break 'found;
-                    }
-                }
-
-                // not found in loaded children
-                if let Some(dir_inode) = &parent.inode {
-                    let dir_inode = dir_inode.clone();
-                    let lookup_result = dir_inode.lookup(name);
-                    if let Some(lookup_result) = lookup_result {
-                        let dentry = Arc::new(lookup_result);
-                        parent.children.lock().push(dentry.clone());
-                        new_parent = Some(dentry);
-                    } else {
-                        return None;
-                    }
-                } else {
-                    return None;
-                }
-            }
-            if let Some(new_parent) = new_parent {
-                parent = new_parent
-            }
-        }
-    }
-    // If path is empty
-    Some((parent, ""))
-}
-
-pub fn get_dentry(path: &str, cwd: Option<Arc<DirEntry>>) -> Option<Arc<DirEntry>> {
-    let parent = get_parent_dentry(path, cwd);
-    if let Some((parent, target_name)) = parent {
-        if target_name == ".." {
-            Some(parent.parent.as_ref().map(|p| p.upgrade().unwrap()).unwrap_or(get_root()))
-        } else if target_name == "." {
-            Some(parent)
-        } else {
-            loop {
-                let children = parent.children.lock();
-                for child in children.iter() {
-                    if child.name == target_name {
-                        return Some(child.clone());
-                    }
-                }
-
-                // not found in loaded children
-                if let Some(dir_inode) = &parent.inode {
-                    let dir_inode = dir_inode.clone();
-                    let lookup_result = dir_inode.lookup(target_name);
-                    if let Some(lookup_result) = lookup_result {
-                        let dentry = Arc::new(lookup_result);
-                        parent.children.lock().push(dentry.clone());
-                        return Some(dentry);
-                    } else {
-                        return None;
-                    }
-                } else {
-                    return None;
-                }
-            }
-        }
-    } else {
-        None
-    }
-}
-
-pub fn get_dentry_fullpath(dentry: &DirEntry) -> String {
-    let mut path = String::new();
-    while let Some(dentry) = &dentry.parent {
-        let mut new_path = String::from(&dentry.upgrade().unwrap().name);
-        new_path.push('/');
-        new_path.push_str(path.as_str());
-        path = new_path;
-    }
-    path
-}
-
-pub fn link(parent: Arc<DirEntry>, inode: Arc<dyn Inode>, name: &str) -> Result<Arc<DirEntry>> {
-    let children = parent.children.lock();
-    if children.iter().any(|v| v.name == name) {
-        return Err("Already existed.".into());
-    }
-
-    if let Some(inode) = &parent.inode {
-        inode.link(inode.clone(), name).expect("Cannot link to parent inode")
-    }
-
-
-    let dentry = Arc::new(DirEntry {
-        parent: Some(Arc::downgrade(&parent)),
-        name: name.to_string(),
-        inode: Some(inode.clone()),
-        type_: inode.get_dentry_type(),
-        children: Spinlock::new(Vec::new()),
-    });
-    parent.children.lock().push(dentry.clone());
-
-    Ok(dentry)
-}
-
-pub fn open(dentry: Arc<DirEntry>, flags: FileOpenFlags, mode: FileModes) -> Result<Arc<dyn File>> {
-    match dentry.type_ {
-        DirEntryType::File => {
-            if let Some(inode) = &dentry.inode {
-                inode.open(dentry.clone(), flags, mode)
+            (root_dentry_arc.clone(), if path.starts_with("/") {
+                &path[1..]
             } else {
-                Err("No inode to open".into())
+                path
+            })
+        };
+
+        let mut paths = path.split("/").peekable();
+        let mut parent = cwd;
+        while let Some(name) = paths.next() {
+            if paths.peek().is_none() {
+                // last name
+                return Some((parent, name));
+            }
+            if name == ".." {
+                parent = parent.parent.as_ref().map(|p| p.upgrade().expect("Parent not found."))
+                    .unwrap_or(root_dentry_arc.clone());
+            } else if name == "." || name.len() == 0 {
+                // do nothing
+            } else {
+                // do search deep
+                let mut new_parent = None;
+                'found: loop {
+                    if DirEntryType::Dir != parent.type_ {
+                        return None;
+                    }
+                    let mut children = parent.children.lock();
+                    for child in children.iter() {
+                        if child.name == name {
+                            new_parent = Some(child.clone());
+                            break 'found;
+                        }
+                    }
+
+                    // not found in loaded children
+                    if let Some(dir_inode) = &parent.inode {
+                        let dir_inode = dir_inode.clone();
+                        let lookup_result = dir_inode.lookup(name);
+                        if let Some(mut lookup_result) = lookup_result {
+
+                            let dentry = Arc::new(lookup_result);
+                            children.push(dentry.clone());
+                            new_parent = Some(dentry);
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    }
+                }
+                if let Some(new_parent) = new_parent {
+                    parent = new_parent
+                }
             }
         }
-        DirEntryType::Dir => Ok(Arc::new(DirFile {
-            dentry,
-            iterator: Spinlock::new(None),
-        }))
+        // If path is empty
+        Some((parent, ""))
     }
-}
 
-pub fn close(file: Arc<dyn File>) -> EmptyResult {
-    Ok(())
-}
+    pub fn from_path(path: &str, cwd: Option<Arc<DirEntry>>) -> Option<Arc<DirEntry>> {
+        if path == "/" {
+            return Some(Self::root());
+        }
+        let parent = Self::get_parent(path, cwd);
+        if let Some((parent, target_name)) = parent {
+            if target_name == ".." {
+                Some(parent.parent.as_ref().map(|p| p.upgrade().unwrap()).unwrap_or(Self::root()))
+            } else if target_name == "." {
+                Some(parent)
+            } else {
+                loop {
+                    let mut children = parent.children.lock();
+                    for child in children.iter() {
+                        if child.name == target_name {
+                            return Some(child.clone());
+                        }
+                    }
 
-pub fn read(file: Arc<dyn File>, len: usize) -> Result<Vec<u8>> {
-    file.read(len)
-}
-
-pub fn write(file: Arc<dyn File>, buffer: &[u8]) -> Result<usize> {
-    file.write(buffer)
-}
-
-pub fn lseek(file: Arc<dyn File>, offset: isize, whence: SeekPosition) -> Result<usize> {
-    file.seek(offset, whence)
-}
-
-pub fn mkdir(parent: Arc<DirEntry>, name: &str) -> Result<Arc<DirEntry>> {
-    if name == "." || name == ".." {
-        return Err("Try to mkdir of parent or self.".into());
+                    // not found in loaded children
+                    if let Some(dir_inode) = &parent.inode {
+                        let dir_inode = dir_inode.clone();
+                        let lookup_result = dir_inode.lookup(target_name);
+                        if let Some(lookup_result) = lookup_result {
+                            let dentry = Arc::new(lookup_result);
+                           children.push(dentry.clone());
+                            return Some(dentry);
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    }
+                }
+            }
+        } else {
+            None
+        }
     }
-    let children = parent.children.lock();
-    if children.iter().any(|v| v.name == name) {
-        return Err("Already existed.".into());
+
+    pub fn fullpath(&self) -> String {
+        let mut path = String::new();
+        while let Some(dentry) = &self.parent {
+            let mut new_path = String::from(&dentry.upgrade().unwrap().name);
+            new_path.push('/');
+            new_path.push_str(path.as_str());
+            path = new_path;
+        }
+        path
     }
-    let mut dir_inode = if let Some(inode) = &parent.inode {
-        Some(inode.mkdir(name).expect("Failed to mkdir inode."))
-    } else {
-        None
-    };
 
-    Ok(Arc::new(DirEntry {
-        parent: Some(Arc::downgrade(&parent)),
-        name: name.to_string(),
-        inode: dir_inode,
-        type_: DirEntryType::Dir,
-        children: Spinlock::new(Vec::new()),
-    }))
-}
+    pub fn link(self: Arc<Self>, inode: Arc<dyn Inode>, name: &str) -> Result<Arc<DirEntry>> {
+        let mut children = self.children.lock();
+        if children.iter().any(|v| v.name == name) {
+            return Err("Already existed.".into());
+        }
 
-pub fn read_dir(dir: Arc<DirFile>) -> Option<Arc<DirEntry>> {
-    todo!()
-}
+        if let Some(inode) = &self.inode {
+            inode.link(inode.clone(), name).expect("Cannot link to parent inode")
+        }
 
-pub fn get_root() -> Arc<DirEntry> {
-    return unsafe { ROOT_DENTRY.as_ref().unwrap() }.clone();
+
+        let dentry = Arc::new(DirEntry {
+            parent: Some(Arc::downgrade(&self)),
+            name: name.to_string(),
+            inode: Some(inode.clone()),
+            type_: inode.get_dentry_type(),
+            children: Spinlock::new(Vec::new()),
+        });
+        children.push(dentry.clone());
+
+        Ok(dentry)
+    }
+
+    pub fn open(self: Arc<DirEntry>, flags: FileOpenFlags, mode: FileModes) -> Result<Arc<dyn File>> {
+        match self.type_ {
+            DirEntryType::File => {
+                self.inode.as_ref().ok_or("No inode to open")?.open(self.clone(), flags, mode)
+            }
+            DirEntryType::Dir => Ok(Arc::new(DirFile {
+                dentry: self,
+                iterator: Spinlock::new(None),
+            }))
+        }
+    }
+
+    pub fn mkdir(self: Arc<DirEntry>, name: &str) -> Result<Arc<DirEntry>> {
+        if name == "." || name == ".." {
+            return Err("Try to mkdir of parent or self.".into());
+        }
+        let mut children = self.children.lock();
+        if children.iter().any(|v| v.name == name) {
+            return Err("Already existed.".into());
+        }
+        let mut dir_inode = if let Some(inode) = &self.inode {
+            Some(inode.mkdir(name).expect("Failed to mkdir inode."))
+        } else {
+            None
+        };
+
+        let dentry = Arc::new(DirEntry {
+            parent: Some(Arc::downgrade(&self)),
+            name: name.to_string(),
+            inode: dir_inode,
+            type_: DirEntryType::Dir,
+            children: Spinlock::new(Vec::new()),
+        });
+        children.push(dentry.clone());
+        Ok(dentry)
+    }
 }

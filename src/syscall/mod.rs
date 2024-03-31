@@ -44,14 +44,17 @@ macro_rules! do_syscall {
 pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
     // info!("Syscall {:?} called.", syscall);
     match syscall {
-        /* File */
+        /* Filesystem */
         Syscall::openat => do_syscall!(file::open, args, 4),
         Syscall::read => do_syscall!(file::read, args, 3),
         Syscall::write => do_syscall!(file::write, args, 3),
         Syscall::lseek => do_syscall!(file::lseek, args, 3),
         Syscall::close => do_syscall!(file::close, args, 1),
+        Syscall::mkdirat => do_syscall!(file::mkdirat, args, 3),
+        Syscall::mount => do_syscall!(file::mount, args, 5),
         /* Process */
         Syscall::clone => do_syscall!(process::clone, args, 2),
+        Syscall::execve => do_syscall!(process::execve, args, 3),
         /* Custon */
         Syscall::ark_sleep_ticks => do_syscall!(custom::sleep_ticks, args, 1),
         /* Unknown & Unimplemented */

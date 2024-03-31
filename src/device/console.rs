@@ -34,7 +34,7 @@ impl File for Stdin {
         Err("You cannot seek a stream.".into())
     }
 
-    fn read(&self, len: usize) -> Result<Vec<u8>> {
+    fn read(&self, buf: &mut [u8]) -> Result<usize> {
         todo!()
     }
 
@@ -42,7 +42,7 @@ impl File for Stdin {
         Err("You cannot write to stdin.".into())
     }
 
-    fn close(&mut self) {}
+    fn close(&self) -> EmptyResult { Ok(())}
 
     fn get_dentry(&self) -> Arc<DirEntry> {
         panic!("Invalid get dentry for stdin/stdout")
@@ -54,7 +54,7 @@ impl File for Stdout {
         Err("You cannot seek a stream.".into())
     }
 
-    fn read(&self, len: usize) -> Result<Vec<u8>> {
+    fn read(&self, buf: &mut [u8]) -> Result<usize> {
         Err("You cannot read from stdout.".into())
     }
 
@@ -63,7 +63,7 @@ impl File for Stdout {
         Ok(buf.len())
     }
 
-    fn close(&mut self) {}
+    fn close(&self) -> EmptyResult { Ok(()) }
 
     fn get_dentry(&self) -> Arc<DirEntry> {
         panic!("Invalid get dentry for stdin/stdout")

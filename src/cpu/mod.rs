@@ -51,15 +51,21 @@ impl CPU {
         }
     }
 
-    pub fn get_current() -> Option<SpinlockGuard<'static, CPU>> {
-        let core_id = if CPUS.len() == 1 {
+    pub fn get_current_id() -> usize {
+        if CPUS.len() == 1 {
             0
         } else {
             mhartid::read()
-        };
-        CPUS.get(core_id).map(|v| v.lock())
+        }
     }
 
+    pub fn get_current() -> Option<SpinlockGuard<'static, CPU>> {
+        CPUS.get(Self::get_current_id()).map(|v| v.lock())
+    }
+
+    pub fn get_count() -> usize {
+        CPUS.len()
+    }
 
     pub fn get_process(&self) -> Option<Arc<Process>> {
         self.proc.clone()

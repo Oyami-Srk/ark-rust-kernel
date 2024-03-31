@@ -107,4 +107,21 @@ impl ProcessMemory {
             self.map(vpn.clone(), child_page, flags.clone());
         });
     }
+
+    pub fn reset(&mut self) {
+        let mut page_table = PageTable::new();
+        // Set kernel huge table entry
+        page_table.map_big(
+            VirtAddr::from(0x8000_0000), PhyAddr::from(0x8000_0000),
+            PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::G,
+        );
+        self.maps.clear();
+
+        self.prog_end = VirtAddr::from(0);
+        self.brk = VirtAddr::from(0);
+        self.stack_base = VirtAddr::from(0x8000_0000);
+        self.stack_top = VirtAddr::from(0x8000_0000);
+
+        self.page_table = page_table;
+    }
 }

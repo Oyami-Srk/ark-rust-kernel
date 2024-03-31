@@ -6,6 +6,7 @@
 //! Change log:
 //!   - 2024/03/15: File created.
 
+use core::arch::asm;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::cell::UnsafeCell;
@@ -15,6 +16,8 @@ use core::ops::{Deref, DerefMut};
 pub struct Spinlock<T> {
     lock: AtomicBool,
     data: UnsafeCell<T>,
+    _locker: UnsafeCell<usize>,
+    // Locker address
     _marker: PhantomData<T>, // Tell compiler we work as T
 }
 
@@ -29,14 +32,18 @@ impl<T> Spinlock<T> {
         Self {
             lock: AtomicBool::new(false),
             data: UnsafeCell::new(data),
+            _locker: UnsafeCell::new(0),
             _marker: PhantomData,
         }
     }
 
     pub fn lock(&self) -> SpinlockGuard<T> {
+        let mut fp: usize;
+        unsafe { asm!("ld {}, 40(sp)", out(reg) fp) }; // trick to save locker
         while self.lock.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
             hint::spin_loop();
         }
+        unsafe { *self._locker.get() = fp };
         SpinlockGuard::new(self)
     }
 
