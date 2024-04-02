@@ -81,7 +81,8 @@ trap_save_u:
     # TrapContext.user_satp = t0
     sd t0, 32*8(sp)
 
-    # 保存内核栈顶
+    # 恢复内核栈
+    addi a0, sp, 0
     ld sp, 35*8(sp)
 
     # 跳转到Rust中的handler

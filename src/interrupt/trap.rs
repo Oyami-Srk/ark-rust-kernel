@@ -8,9 +8,10 @@
 use riscv::register::stvec::TrapMode;
 use riscv::register::{sie, sstatus, stvec, time, scause, stval, sepc, satp};
 use core::arch::global_asm;
+use log::warn;
 use log::{error, info, trace};
 use riscv::register::scause::{Exception, Scause, Trap};
-use riscv::register::sstatus::SPP;
+use riscv::register::sstatus::{SPP, Sstatus};
 use crate::cpu::CPU;
 use crate::interrupt::interrupt_handler;
 use crate::memory::PAGE_SIZE;
@@ -85,44 +86,54 @@ pub fn disable_trap() {
     unsafe { sstatus::clear_sie() }
 }
 
-fn exception_handler(trap_context:&TrapContext, exp: scause::Exception, sstatus: sstatus::Sstatus, sepc: usize, stval: usize, from_user: bool) {
+fn exception_handler(trap_context: &TrapContext, exp: scause::Exception, sstatus: sstatus::Sstatus, sepc: usize, stval: usize, from_user: bool) -> Option<usize> {
     // TODO: handle page fault
-
-    error!("Exception {:?} from {}: spec: {:#x}, stval: {:#x}", exp,
-        if let SPP::User = sstatus.spp() { "user" } else { "kernel" },
-        sepc, stval);
-
-    if from_user && let Some(proc) = CPU::get_current().unwrap().get_process() {
-        error!("Happened on PID {}", proc.pid.pid());
-    }
-
-    unsafe {
-        extern "C" {
-            fn boot_sp();
+    match exp {
+        Exception::Breakpoint => {
+            warn!("Breakpoint triggered.");
+            Some(2) // ebreak length
         }
-        let stop = if let Some(proc) = CPU::get_current().unwrap().get_process() {
-            proc.data.lock().kernel_stack[0].id.id * PAGE_SIZE
-        } else {
-            boot_sp as usize
-        };
-        let mut fp = trap_context.reg[TrapContext::s0];
-        error!("======== RISCV Backtrace ========");
-        for i in 0..10 {
-            if fp == stop || fp == 0 {
-                break;
+        _ => {
+            error!("Exception {:?} from {}: spec: {:#x}, stval: {:#x}", exp,
+                    if let SPP::User = sstatus.spp() { "user" } else { "kernel" },
+                    sepc, stval);
+
+            if from_user && let Some(proc) = CPU::get_current().unwrap().get_process() {
+                error!("Happened on PID {}", proc.pid.pid());
             }
-            error!("#{}:ra={:#x}", i, *((fp - 8) as *const usize));
-            fp = *((fp - 16) as *const usize);
-        }
-        error!("=================================");
-    }
 
-    let _ = sbi::system_reset::system_reset(
-        sbi::system_reset::ResetType::Shutdown,
-        sbi::system_reset::ResetReason::SystemFailure,
-    );
-    // 万一呢？
-    loop {}
+            /*
+            unsafe {
+                extern "C" {
+                    fn boot_sp();
+                }
+                let stop = if let Some(proc) = CPU::get_current().unwrap().get_process() {
+                    proc.data.lock().kernel_stack[0].id.id * PAGE_SIZE
+                } else {
+                    boot_sp as usize
+                };
+                let mut fp = trap_context.reg[TrapContext::s0];
+                error!("======== RISCV Backtrace ========");
+                for i in 0..10 {
+                    if fp == stop || fp == 0 {
+                        break;
+                    }
+                    error!("#{}:ra={:#x}", i, *((fp - 8) as *const usize));
+                    fp = *((fp - 16) as *const usize);
+                }
+                error!("=================================");
+            }
+            */
+
+            let _ = sbi::system_reset::system_reset(
+                sbi::system_reset::ResetType::Shutdown,
+                sbi::system_reset::ResetReason::SystemFailure,
+            );
+            // 万一呢？
+            loop {}
+            None
+        }
+    }
 }
 
 /* Trap handlers */
@@ -132,7 +143,7 @@ fn exception_handler(trap_context:&TrapContext, exp: scause::Exception, sstatus:
  */
 
 #[no_mangle]
-fn user_trap_handler(trap_context: &TrapContext) {
+fn user_trap_handler(trap_context: &mut TrapContext) {
     set_interrupt_to_kernel();
     let scause = scause::read();
     let stval = stval::read();
@@ -148,9 +159,6 @@ fn user_trap_handler(trap_context: &TrapContext) {
         Trap::Exception(exp) => {
             match exp {
                 Exception::UserEnvCall => {
-                    let proc = CPU::get_current().unwrap().get_process().unwrap();
-                    let mut proc_data = proc.data.lock();
-                    let trap_context = proc_data.get_trap_context();
                     let args = [
                         trap_context.reg[10],
                         trap_context.reg[11],
@@ -160,14 +168,14 @@ fn user_trap_handler(trap_context: &TrapContext) {
                         trap_context.reg[15]
                     ]; // make slice sized
                     let id = trap_context.reg[17];
-                    drop(proc_data); // FIXME: trap_context outlive proc_data
-
                     trap_context.sepc += 4;
                     let ret = syscall_handler(Syscall::from(id), &args);
-                    trap_context.reg[10] = ret;
+                    trap_context.reg[TrapContext::a0] = ret;
                 }
                 _ => {
-                    exception_handler(trap_context, exp, sstatus, sepc, stval, true);
+                    if let Some(skip_bytes) = exception_handler(trap_context, exp, sstatus, sepc, stval, true) {
+                        trap_context.sepc += skip_bytes;
+                    }
                 }
             }
         }
@@ -185,6 +193,7 @@ pub fn user_trap_returner() {
         let mut data = proc.data.lock();
         data.get_trap_context()
     };
+    drop(proc);
     set_interrupt_to_user();
     unsafe {
         sstatus::set_spp(SPP::User);
@@ -195,7 +204,7 @@ pub fn user_trap_returner() {
 }
 
 #[no_mangle]
-fn kernel_trap_handler(trap_context: &TrapContext) {
+fn kernel_trap_handler(trap_context: &mut TrapContext) {
     let scause = scause::read();
     let stval = stval::read();
     let sepc = sepc::read();
@@ -213,7 +222,11 @@ fn kernel_trap_handler(trap_context: &TrapContext) {
             interrupt_handler(int);
         }
         Trap::Exception(exp) => {
-            exception_handler(trap_context, exp, sstatus, sepc, stval, false);
+            if let Some(skip_bytes) = exception_handler(trap_context, exp, sstatus, sepc, stval, false) {
+                trap_context.sepc += skip_bytes;
+            }
         }
     }
+
+    assert_ne!(trap_context.sstatus & 1 << 8, 0, "Kernel trap leave without spp=1!");
 }

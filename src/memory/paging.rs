@@ -72,9 +72,7 @@ pub struct PageTable {
 
 impl PageTable {
     pub fn new() -> Self {
-        // FIXME: 这里的alloc没有清零，放到实体机会bug
         let page = Arc::new(PhyPage::alloc());
-        PhyAddr::from(page.id).get_slice_mut::<usize>(PAGE_SIZE / size_of::<usize>()).iter_mut().for_each(|cell| *cell = 0);
         Self {
             entries: page.clone(),
             pages: vec![page],

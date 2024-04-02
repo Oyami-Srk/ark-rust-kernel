@@ -182,7 +182,8 @@ impl<'a> File for FatFSFile<'a> {
     }
 
     fn close(&self) -> EmptyResult {
-        todo!()
+        // We will drop everything
+        Ok(())
     }
 
     fn get_dentry(&self) -> Arc<DirEntry> {

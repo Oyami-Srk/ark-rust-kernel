@@ -11,6 +11,7 @@ pub struct ProcessMemory {
     // program binary end. brk should never goes below this
     pub prog_end: VirtAddr,
     // brk is not page aligned. Aligned value is real_brk.
+    pub min_brk: VirtAddr,
     pub brk: VirtAddr,
     // stack_base/stack_top is always aligned
     pub stack_base: VirtAddr,
@@ -36,6 +37,7 @@ impl ProcessMemory {
             page_table,
             maps: BTreeMap::new(),
             prog_end: VirtAddr::from(0),
+            min_brk: VirtAddr::from(0),
             brk: VirtAddr::from(0),
             stack_base: VirtAddr::from(0x8000_0000),
             stack_top: VirtAddr::from(0x8000_0000),
@@ -57,19 +59,26 @@ impl ProcessMemory {
         self.maps.insert(vpn, (page, flags));
     }
 
-    pub fn set_brk(&mut self, offset: isize) -> usize {
-        let mut real_brk = self.brk.round_up();
+    pub fn set_brk(&mut self, new_brk: VirtAddr) -> usize {
+        // brk is last not valid bytes
+        let mut real_brk = self.brk.to_offset(-1)/* last valid byte */.round_up();
 
-        if offset == 0 {} else if offset < 0 {
-            todo!()
+        if new_brk < self.min_brk {
+            // failure return old brk
+            // do nothing
         } else {
-            let new_brk = self.brk.to_offset(offset);
-            let mut offset = offset;
-            while new_brk >= real_brk {
-                let page = PhyPage::alloc();
-                self.map(VirtPageId::from(real_brk), page, PTEFlags::U | PTEFlags::W | PTEFlags::R);
-                real_brk = real_brk.to_offset(PAGE_SIZE as isize);
-                offset -= PAGE_SIZE as isize;
+            let mut offset = new_brk.addr as isize - self.brk.addr as isize;
+            if offset == 0 {
+                // do nothing
+            } else if offset > 0 {
+                while new_brk > real_brk {
+                    let page = PhyPage::alloc();
+                    self.map(VirtPageId::from(real_brk.to_offset(1isize)), page, PTEFlags::U | PTEFlags::W | PTEFlags::R);
+                    real_brk = real_brk.to_offset(PAGE_SIZE as isize);
+                    offset -= PAGE_SIZE as isize;
+                }
+            } else {
+                todo!();
             }
             self.brk = new_brk;
         }
@@ -101,11 +110,11 @@ impl ProcessMemory {
         self.brk = other.brk;
         self.prog_end = other.prog_end;
 
-        other.maps.iter().for_each(|(vpn, (page, flags))| {
+        for (vpn, (page, flags)) in &other.maps {
             let child_page = PhyPage::alloc();
             child_page.copy_u8(0, PhyAddr::from(page.id).get_u8(PAGE_SIZE));
             self.map(vpn.clone(), child_page, flags.clone());
-        });
+        }
     }
 
     pub fn reset(&mut self) {

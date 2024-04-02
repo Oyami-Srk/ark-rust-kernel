@@ -8,8 +8,9 @@ use crate::filesystem as fs;
 use crate::filesystem::{DirEntry, FileModes, FileOpenFlags, SeekPosition};
 use num_traits::FromPrimitive;
 use crate::utils::error::EmptyResult;
+use crate::syscall::c::*;
 
-const AT_FDCWD: usize = (-100isize) as usize;
+/* For Single File */
 
 pub fn open(parent_fd: usize, filename_buf: VirtAddr, flags: FileOpenFlags, mode: FileModes) -> usize {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
@@ -134,6 +135,8 @@ pub fn lseek(fd: usize, offset: usize, whence: usize) -> usize {
     }
 }
 
+/* For Directory */
+
 pub fn mkdirat(dir_fd: usize, path_buf: VirtAddr, mode: usize) -> usize {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let mut proc_data = proc.data.lock();
@@ -155,6 +158,8 @@ pub fn mkdirat(dir_fd: usize, path_buf: VirtAddr, mode: usize) -> usize {
     }
 }
 
+/* For Filesystem */
+
 pub fn mount(dev_buf: VirtAddr, mount_point_buf: VirtAddr, filesystem_buf: VirtAddr, flags: usize, data_ptr: VirtAddr) -> usize {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let mut proc_data = proc.data.lock();
@@ -173,4 +178,36 @@ pub fn mount(dev_buf: VirtAddr, mount_point_buf: VirtAddr, filesystem_buf: VirtA
             -1isize as usize
         }
     }
+}
+
+pub fn fstat(fd: usize, kstat_buf: VirtAddr) -> usize {
+    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let mut proc_data = proc.data.lock();
+    let file = if let Some(Some(f)) = proc_data.files.get(fd) {
+        f
+    } else {
+        return -1isize as usize;
+    };
+
+    let kstat = kstat_buf.into_pa(proc_data.memory.get_pagetable()).get_ref_mut::<KernelStat>();
+    *kstat = KernelStat {
+        st_dev: 0,
+        st_ino: 0,
+        st_mode: 0o777, // for mod
+        st_nlink: 1,
+        st_uid: 0,
+        st_gid: 0,
+        st_rdev: 0,
+        __pad1: 0,
+        st_size: 0,
+        st_blksize: 0,
+        __pad2: 0,
+        st_blocks: 0,
+        st_atim: Timespec { tv_sec: 0, tv_nsec: 0 },
+        st_mtim: Timespec { tv_sec: 0, tv_nsec: 0 },
+        st_ctim: Timespec { tv_sec: 0, tv_nsec: 0 },
+        __glibc_reserved: [0, 0],
+    };
+
+    0
 }

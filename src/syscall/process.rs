@@ -8,12 +8,15 @@ use crate::cpu::CPU;
 use crate::filesystem::{DirEntry, FileModes, FileOpenFlags};
 use crate::memory::{Addr, PageTable, PhyAddr, VirtAddr};
 use crate::process;
+use crate::process::{do_yield, get_process_manager, ProcessManager};
 
 const SIGCHLD: usize = 17;
 
 pub fn clone(flags: usize, child_stack: usize) -> usize {
     if flags != SIGCHLD { warn!("syscall clone with flags is not SIGCHLD."); }
-    process::fork(child_stack as *const u8)
+    let child_pid = get_process_manager().lock().fork(CPU::get_current().unwrap().get_process().unwrap(), child_stack as *const u8);
+    do_yield(); // yield parent
+    child_pid
 }
 
 pub fn execve(path: VirtAddr, argv: VirtAddr, envp: VirtAddr) -> usize {
@@ -49,9 +52,48 @@ pub fn execve(path: VirtAddr, argv: VirtAddr, envp: VirtAddr) -> usize {
     };
 
     drop(proc_data);
-    process::execve(file, proc, argv, env)
+    proc.execve(file, argv, env)
 }
 
 pub fn exit(code: usize) -> usize {
+    get_process_manager().lock().exit(CPU::get_current().unwrap().get_process().unwrap(), code);
+    do_yield();
+    0 // never used
+}
+
+pub fn wait_for(pid: usize, exit_code_buf: VirtAddr, option: usize) -> usize {
+    let pid: isize = pid as isize;
+    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let exit_code = exit_code_buf.into_pa(proc.data.lock().memory.get_pagetable()).get_ref_mut::<usize>();
+    ProcessManager::wait_for(get_process_manager(), proc, pid, exit_code, option) as usize
+}
+
+pub fn getppid() -> usize {
+    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc_data = proc.data.lock();
+    if let Some(parent) = &proc_data.parent {
+        if let Some(parent) = parent.upgrade() {
+            parent.pid.pid()
+        } else {
+            0
+        }
+    } else {
+        0
+    }
+}
+
+pub fn getpid() -> usize {
+    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    proc.pid.pid()
+}
+
+pub fn yield_() -> usize {
+    do_yield();
     0
+}
+
+pub fn brk(addr: usize) -> usize {
+    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let mut proc_data = proc.data.lock();
+    proc_data.memory.set_brk(addr.into())
 }

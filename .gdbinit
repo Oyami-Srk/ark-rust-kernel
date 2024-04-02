@@ -1,0 +1,1 @@
+add-symbol-file ../rootfs/content/ctest

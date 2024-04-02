@@ -3,12 +3,15 @@ mod file;
 mod utils;
 mod process;
 mod custom;
+mod c;
 
 use core::any::Any;
 use core::option::Option;
-use log::info;
+use log::{error, info, warn};
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::{FromPrimitive, ToPrimitive};
+use riscv::asm::ebreak;
+use riscv::register::medeleg::set_breakpoint;
 pub use id::Syscall;
 use crate::cpu::CPU;
 use crate::memory::{PhyAddr, VirtAddr};
@@ -20,7 +23,10 @@ FIXME: 所有的用户空间访问都没有进行限定
 impl From<usize> for Syscall {
     fn from(value: usize) -> Self {
         let opt: Option<Syscall> = FromPrimitive::from_usize(value);
-        opt.unwrap_or(Syscall::Unknown)
+        opt.unwrap_or_else(|| {
+            warn!("Got a invalid syscall id {}", value);
+            Self::Unknown
+        })
     }
 }
 
@@ -52,15 +58,24 @@ pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
         Syscall::close => do_syscall!(file::close, args, 1),
         Syscall::mkdirat => do_syscall!(file::mkdirat, args, 3),
         Syscall::mount => do_syscall!(file::mount, args, 5),
+        Syscall::fstat => do_syscall!(file::fstat, args, 2),
         /* Process */
+        Syscall::exit => do_syscall!(process::exit, args, 1),
         Syscall::clone => do_syscall!(process::clone, args, 2),
         Syscall::execve => do_syscall!(process::execve, args, 3),
-        /* Custon */
+        Syscall::wait4 => do_syscall!(process::wait_for, args, 3),
+        Syscall::getpid => do_syscall!(process::getpid, args, 0),
+        Syscall::getppid => do_syscall!(process::getppid, args, 0),
+        Syscall::sched_yield => do_syscall!(process::yield_, args, 0),
+        Syscall::brk => do_syscall!(process::brk, args, 1),
+        /* Custom */
         Syscall::ark_sleep_ticks => do_syscall!(custom::sleep_ticks, args, 1),
+        Syscall::ark_breakpoint => do_syscall!(custom::breakpoint, args, 3),
         /* Unknown & Unimplemented */
         Syscall::Unknown => {
             // TODO: kill process
-            panic!("Unknown syscall called.");
+            error!("Unknown syscall called.");
+            -1isize as usize
         }
         _ => {
             todo!("{:?} is not implemented yet", syscall)

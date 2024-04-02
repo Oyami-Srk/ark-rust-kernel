@@ -39,7 +39,10 @@ impl File for Stdin {
     }
 
     fn write(&self, buf: &[u8]) -> Result<usize> {
-        Err("You cannot write to stdin.".into())
+        // Err("You cannot write to stdin.".into())
+        // FIXME: For whatever newlib bug
+        print!("{}", core::str::from_utf8(buf).unwrap());
+        Ok(buf.len())
     }
 
     fn close(&self) -> EmptyResult { Ok(())}

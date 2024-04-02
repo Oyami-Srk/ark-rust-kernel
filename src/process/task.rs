@@ -9,6 +9,7 @@ use alloc::sync::Arc;
 use core::arch::global_asm;
 use log::info;
 use crate::cpu::CPU;
+use crate::interrupt::TrapContext;
 use crate::process::ProcessStatus;
 global_asm!(include_str!("switch.S"));
 
@@ -61,6 +62,7 @@ pub fn do_yield() {
     let old_ctx = &mut proc_data.kernel_task_context as *mut TaskContext;
     let new_ctx = cpu.get_context();
     drop(proc_data); // FIXME: old_ctx outlived with proc_data
+    drop(proc);
     cpu.set_process(None);
     drop(cpu);
     // info!("Do Yield for process {} at {:x}", proc.pid.pid(), proc.as_ref() as *const crate::process::Process as usize);

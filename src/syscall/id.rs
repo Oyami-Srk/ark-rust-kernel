@@ -5,7 +5,7 @@ use num_derive::{ToPrimitive, FromPrimitive};
 #[allow(non_camel_case_types)]
 pub enum Syscall{
     getcwd = 17,
-    lseek = 19,
+    lseek = 62,
     pipe2 = 59,
     dup = 23,
     dup3 = 24,
@@ -37,6 +37,7 @@ pub enum Syscall{
     nanosleep = 101,
     /* Custom syscall */
     ark_sleep_ticks = 1002,
+    ark_breakpoint = 20010125,
 
     Unknown = usize::MAX
 }

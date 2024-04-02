@@ -53,11 +53,15 @@ impl File for VirtIOBlockFile {
     }
 
     fn write(&self, buf: &[u8]) -> crate::utils::error::Result<usize> {
-        todo!()
+        let mut offset = self.cur.lock();
+        let write_bytes = self.device.write(*offset, buf);
+        *offset += write_bytes;
+        Ok(write_bytes)
     }
 
     fn close(&self) -> EmptyResult {
-        todo!()
+        // Self is dropped.
+        Ok(())
     }
 
     fn get_dentry(&self) -> Arc<DirEntry> {
@@ -189,6 +193,10 @@ impl VirtIOBlock {
         };
         buf.copy_from_slice(&kbuf[in_block_offset..in_block_offset + read_size]);
         read_size
+    }
+
+    pub fn write(&self, offset: usize, buf: &[u8]) -> usize {
+        0
     }
 
     pub fn handle_irq(&self) {

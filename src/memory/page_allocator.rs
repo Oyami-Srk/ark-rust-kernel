@@ -100,7 +100,14 @@ impl PhyPage {
     }
 
     pub fn alloc() -> Self {
-        Self::new(PAGE_ALLOCATOR.lock().alloc(1).expect("Allocate 1 page failed.").into())
+        let id = PhyPageId::from(PAGE_ALLOCATOR.lock().alloc(1).expect("Allocate 1 page failed."));
+        // Clean page
+        let addr = PhyAddr::from(id);
+        // addr.get_slice_mut::<usize>(PAGE_SIZE / size_of::<usize>()).iter_mut().for_each(|cell| *cell = 0);
+        unsafe {
+            core::ptr::write_bytes(addr.get_addr() as *mut u8, 0, PAGE_SIZE);
+        }
+        Self::new(id)
     }
 
     pub fn alloc_many(count: usize) -> Vec<Self> {
