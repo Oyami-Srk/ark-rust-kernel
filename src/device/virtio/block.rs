@@ -1,17 +1,18 @@
 use alloc::collections::BTreeMap;
-use alloc::sync::Arc;
+use alloc::sync::{Arc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cmp::{max, min};
 use core::ops::DerefMut;
 use bitflags::Flags;
+use fatfs::Dir;
 use lazy_static::lazy_static;
 use log::info;
 use virtio_drivers::device::blk::{BlkReq, BlkResp, RespStatus, SECTOR_SIZE, VirtIOBlk};
 use virtio_drivers::transport::mmio::MmioTransport;
 use virtio_drivers::transport::Transport;
 use crate::device::virtio::VirtioHal;
-use crate::filesystem::{DirEntry, DirEntryType, File, FileModes, FileOpenFlags, Inode, SeekPosition, DirFile};
+use crate::filesystem::{DirEntry, DirEntryType, File, FileModes, FileOpenFlags, Inode, SeekPosition, DirFile, InodeStat};
 use crate::utils::error::EmptyResult;
 use crate::core::Spinlock;
 use crate::interrupt::{plic, register_interrupt_handler};
@@ -84,7 +85,7 @@ struct VirtIOBlockInode {
 }
 
 impl Inode for VirtIOBlockInode {
-    fn lookup(&self, name: &str) -> Option<DirEntry> {
+    fn lookup(&self, name: &str, this_dentry: Weak<DirEntry>) -> Option<DirEntry> {
         unimplemented!()
     }
 
@@ -104,7 +105,7 @@ impl Inode for VirtIOBlockInode {
         unimplemented!()
     }
 
-    fn read_dir(&self) -> crate::utils::error::Result<Vec<DirEntry>> {
+    fn read_dir(&self, this_dentry: Weak<DirEntry>) -> crate::utils::error::Result<Vec<DirEntry>> {
         unimplemented!()
     }
 
@@ -118,6 +119,16 @@ impl Inode for VirtIOBlockInode {
 
     fn get_dentry_type(&self) -> DirEntryType {
         DirEntryType::File
+    }
+
+    fn get_stat(&self) -> InodeStat {
+        InodeStat {
+            ino: 0,
+            mode: (FileModes::BLK | FileModes::Read | FileModes::Write).bits() as usize,
+            nlink: 1,
+            size: self.device.size,
+            block_size: SECTOR_SIZE,
+        }
     }
 }
 

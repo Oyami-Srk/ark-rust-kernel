@@ -5,16 +5,17 @@ use crate::config::{CLOCK_FREQ, TICKS_PER_SECOND};
 use crate::cpu::CPU;
 use crate::device::timer;
 use crate::memory::{Addr, VirtAddr};
+use crate::syscall::error::SyscallResult;
 
-pub fn sleep_ticks(ticks: usize) -> usize {
+pub fn sleep_ticks(ticks: usize) -> SyscallResult {
     let current_ticks = time::read() / (CLOCK_FREQ / TICKS_PER_SECOND);
     while (time::read() / (CLOCK_FREQ / TICKS_PER_SECOND)) - current_ticks < ticks {
         timer::sleep_on_timer();
     }
-    time::read() / (CLOCK_FREQ / TICKS_PER_SECOND)
+    Ok(time::read() / (CLOCK_FREQ / TICKS_PER_SECOND))
 }
 
-pub fn breakpoint(id: usize, data: VirtAddr, optional_length: usize) -> usize {
+pub fn breakpoint(id: usize, data: VirtAddr, optional_length: usize) -> SyscallResult {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let proc_data = proc.data.lock();
     if id == 0 {
@@ -24,5 +25,5 @@ pub fn breakpoint(id: usize, data: VirtAddr, optional_length: usize) -> usize {
     }
 
     unsafe { ebreak(); };
-    0
+    Ok(0)
 }

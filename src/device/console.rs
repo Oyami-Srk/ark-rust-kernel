@@ -10,9 +10,10 @@ pub struct Console;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 pub use core::fmt::{self, Write};
-use sbi::legacy::console_putchar;
+use sbi::legacy::{console_getchar, console_putchar};
 use crate::filesystem::{DirEntry, File, SeekPosition};
 use crate::print;
+use crate::process::do_yield;
 use crate::utils::error::{Result, EmptyResult};
 
 impl Write for Console {
@@ -35,7 +36,18 @@ impl File for Stdin {
     }
 
     fn read(&self, buf: &mut [u8]) -> Result<usize> {
-        todo!()
+        let mut ch: u8;
+        loop {
+            if let Some(c) = console_getchar() {
+                ch = c;
+                break;
+            } else {
+                do_yield();
+            }
+        }
+        assert_ne!(buf.len(), 0, "Cannot read to empty buf.");
+        buf[0] = ch;
+        Ok(1)
     }
 
     fn write(&self, buf: &[u8]) -> Result<usize> {

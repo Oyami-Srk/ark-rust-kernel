@@ -6,6 +6,7 @@
 //!   - 2024/03/17: File created.
 
 use core::fmt::{Display, Formatter};
+use core::iter::Step;
 use core::ops::{Add, Sub};
 use crate::cpu::CPU;
 use crate::memory::{PAGE_SIZE, PageTable};
@@ -25,7 +26,7 @@ pub struct VirtAddr {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct PhyPageId {
     pub id: usize,
 }
@@ -163,7 +164,7 @@ impl Display for PhyAddr {
 
 impl Display for PhyPageId {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        f.write_fmt(format_args!("[PhyPageId: {}]", &self.id))
+        f.write_fmt(format_args!("[PhyPageId: {:#x}]", &self.id))
     }
 }
 
@@ -175,7 +176,7 @@ impl Display for VirtAddr {
 
 impl Display for VirtPageId {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        f.write_fmt(format_args!("[VirtPageId: {}]", &self.id))
+        f.write_fmt(format_args!("[VirtPageId: {:#x}]", &self.id))
     }
 }
 
@@ -258,9 +259,20 @@ pub trait Addr: Sized + From<usize> {
     }
 }
 
+pub trait PageId: Sized + From<usize> + Clone + PartialOrd {
+    #[inline]
+    fn get_id(&self) -> usize;
+}
+
 impl Addr for PhyAddr {
     fn get_addr(&self) -> usize {
         self.addr
+    }
+}
+
+impl PageId for PhyPageId {
+    fn get_id(&self) -> usize {
+        self.id
     }
 }
 
@@ -282,6 +294,12 @@ impl VirtAddr {
 impl Addr for VirtAddr {
     fn get_addr(&self) -> usize {
         self.addr
+    }
+}
+
+impl PageId for VirtPageId {
+    fn get_id(&self) -> usize {
+        self.id
     }
 }
 

@@ -1,8 +1,12 @@
 use alloc::collections::BTreeMap;
+use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use log::info;
+use crate::config::{KERNEL_SPACE_BASE, PROCESS_MMAP_BASE, PROCESS_USER_STACK_BASE};
+use crate::device::timer::handler;
 use crate::memory::{Addr, PAGE_SIZE, PageTable, PhyAddr, PhyPage, PTEFlags, VirtAddr, VirtPageId};
+use crate::utils::error::{EmptyResult, Result};
 
 pub struct ProcessMemory {
     page_table: PageTable,
@@ -15,13 +19,29 @@ pub struct ProcessMemory {
     pub brk: VirtAddr,
     // stack_base/stack_top is always aligned
     pub stack_base: VirtAddr,
+    // stack_top is last valid byte in next stack page
     pub stack_top: VirtAddr,
+    // mmap_base/mmap_btm is always aligned
+    pub mmap_base: VirtAddr,
     /*
             |   kernel   |
             | ---------  |
-            | stack top  |
-            | .........  |
             | stack base |
+            | .........  |
+            | stack top  |
+            | ---------- |
+            |  reserved  |
+            | ---------- |
+            |  mmap_base |
+            |  ........  |
+            | ---------- |
+            |  reserved  |
+            | ---------- |
+            |   brk      |
+            | ---------- |
+            |   prog_end |
+            | ---------- |
+            |    0x0     |
      */
 }
 
@@ -30,7 +50,7 @@ impl ProcessMemory {
         let mut page_table = PageTable::new();
         // Set kernel huge table entry
         page_table.map_big(
-            VirtAddr::from(0x8000_0000), PhyAddr::from(0x8000_0000),
+            VirtAddr::from(KERNEL_SPACE_BASE), PhyAddr::from(KERNEL_SPACE_BASE),
             PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::G,
         );
         Self {
@@ -39,8 +59,9 @@ impl ProcessMemory {
             prog_end: VirtAddr::from(0),
             min_brk: VirtAddr::from(0),
             brk: VirtAddr::from(0),
-            stack_base: VirtAddr::from(0x8000_0000),
-            stack_top: VirtAddr::from(0x8000_0000),
+            stack_base: VirtAddr::from(PROCESS_USER_STACK_BASE),
+            stack_top: VirtAddr::from(PROCESS_USER_STACK_BASE),
+            mmap_base: VirtAddr::from(PROCESS_MMAP_BASE),
         }
     }
 
@@ -59,6 +80,19 @@ impl ProcessMemory {
         self.maps.insert(vpn, (page, flags));
     }
 
+    pub fn unmap(&mut self, vpn: VirtPageId) -> EmptyResult {
+        if let Some(_) = self.maps.remove(&vpn) {
+            self.page_table.unmap(vpn.into());
+            Ok(())
+        } else {
+            Err("page is not mapped.".into())
+        }
+    }
+
+    pub fn is_mapped(&self, vpn: &VirtPageId) -> bool {
+        self.maps.contains_key(vpn)
+    }
+
     pub fn set_brk(&mut self, new_brk: VirtAddr) -> usize {
         // brk is last not valid bytes
         let mut real_brk = self.brk.to_offset(-1)/* last valid byte */.round_up();
@@ -71,6 +105,7 @@ impl ProcessMemory {
             if offset == 0 {
                 // do nothing
             } else if offset > 0 {
+                // FIXME: could overlap with mmap
                 while new_brk > real_brk {
                     let page = PhyPage::alloc();
                     self.map(VirtPageId::from(real_brk.to_offset(1isize)), page, PTEFlags::U | PTEFlags::W | PTEFlags::R);
@@ -87,13 +122,13 @@ impl ProcessMemory {
 
     pub fn increase_user_stack(&mut self) {
         let page = PhyPage::alloc();
-        let stack_base = VirtPageId::from(self.stack_base) - 1usize;
-        self.map(stack_base, page, PTEFlags::U | PTEFlags::W | PTEFlags::R);
-        self.stack_base = stack_base.into();
+        let new_stack_vpn = VirtPageId::from(self.stack_top) - 1;
+        self.map(new_stack_vpn, page, PTEFlags::U | PTEFlags::W | PTEFlags::R);
+        self.stack_top = new_stack_vpn.into();
     }
 
     pub fn get_mapped_last_page(&self) -> VirtPageId {
-        let first_stack_vpn = VirtPageId::from(self.stack_base);
+        let first_stack_vpn = VirtPageId::from(self.stack_top);
         let end = self.maps.iter().filter_map(|(vpn, _)| {
             if *vpn >= first_stack_vpn {
                 None
@@ -117,19 +152,81 @@ impl ProcessMemory {
         }
     }
 
+    fn check_collapse(&self, start_vpn: VirtPageId, pages: usize, is_increasing: bool) -> bool {
+        for vpn in if is_increasing { start_vpn.id..start_vpn.id + pages } else { start_vpn.id - pages + 1..start_vpn.id + 1 } {
+            let vpn = VirtPageId::from(vpn);
+            if self.maps.contains_key(&vpn) {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn mmap(&mut self, addr: Option<VirtAddr>, pages: usize, flags: PTEFlags) -> Result<VirtAddr> {
+        if let Some(first_vpn) = addr.map(|addr| VirtPageId::from(addr)) {
+            for vpn in first_vpn.id..first_vpn.id + pages {
+                let vpn = VirtPageId::from(vpn);
+                if self.maps.contains_key(&vpn) {
+                    // drop old
+                    self.unmap(vpn).unwrap();
+                }
+                let page = PhyPage::alloc();
+                self.map(vpn, page, flags);
+            }
+            Ok(first_vpn.into())
+        } else {
+            // addr is not fixed, we alloc this.
+            let first_page = {
+                let mmap_base_vpn = VirtPageId::from(self.mmap_base);
+                if (!self.maps.contains_key(&mmap_base_vpn)) &&
+                    (!self.check_collapse(mmap_base_vpn, pages, false)) {
+                    Some(mmap_base_vpn)
+                } else {
+                    let brk_page = VirtPageId::from(self.brk.to_offset(-1).round_up());
+                    self.maps.keys()
+                        .filter_map(|mapped_vpn| {
+                            if mapped_vpn > &VirtPageId::from(self.mmap_base) || mapped_vpn <= &brk_page {
+                                None
+                            } else {
+                                Some(VirtPageId::from(mapped_vpn.id - 1))
+                            }
+                        })
+                        .find(|first_not_mapped_vpn| {
+                            // info!("Checking {}", first_not_mapped_vpn);
+                            !self.check_collapse(first_not_mapped_vpn.clone(), pages, false)
+                        })
+                }
+            };
+
+
+            if let Some(first_not_mapped_vpn) = first_page {
+                for vpn in first_not_mapped_vpn.id - pages + 1..first_not_mapped_vpn.id + 1 {
+                    let vpn = VirtPageId::from(vpn);
+                    let page = PhyPage::alloc();
+                    self.map(vpn, page, flags);
+                }
+                Ok(first_not_mapped_vpn.into())
+            } else {
+                // no mem
+                Err("no enough memory for mmap".into())
+            }
+        }
+    }
+
     pub fn reset(&mut self) {
         let mut page_table = PageTable::new();
         // Set kernel huge table entry
         page_table.map_big(
-            VirtAddr::from(0x8000_0000), PhyAddr::from(0x8000_0000),
+            VirtAddr::from(KERNEL_SPACE_BASE), PhyAddr::from(KERNEL_SPACE_BASE),
             PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::G,
         );
         self.maps.clear();
 
         self.prog_end = VirtAddr::from(0);
         self.brk = VirtAddr::from(0);
-        self.stack_base = VirtAddr::from(0x8000_0000);
-        self.stack_top = VirtAddr::from(0x8000_0000);
+        self.stack_base = VirtAddr::from(PROCESS_USER_STACK_BASE);
+        self.stack_top = VirtAddr::from(PROCESS_USER_STACK_BASE);
+        self.mmap_base = VirtAddr::from(PROCESS_MMAP_BASE);
 
         self.page_table = page_table;
     }

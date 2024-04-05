@@ -21,8 +21,11 @@ use crate::filesystem::{DirEntry, DirEntryType, File, SeekPosition};
 use crate::interrupt::{enable_trap, TrapContext, user_trap_returner};
 use super::pid::Pid;
 use crate::{config, memory};
+use crate::config::CLOCK_FREQ;
 use crate::memory::{PAGE_SIZE, PageTable, PhyAddr, PhyPage, PhyPageId, PTEFlags, VirtAddr, Addr, VirtPageId};
 use crate::process::{do_yield, PROCESS_MANAGER, TaskContext};
+use crate::process::aux_ as aux;
+use crate::process::aux_::Aux;
 use crate::process::condvar::Condvar;
 use super::process_memory::ProcessMemory;
 
@@ -99,18 +102,23 @@ impl Process {
         }
     }
 
-    pub fn load_elf(&self, elf_binary: &[u8]) {
+    pub fn load_elf(&self, elf_binary: &[u8]) -> Vec<Aux> {
+        let mut aux_table: Vec<Aux> = vec![];
         let elf = xmas_elf::ElfFile::new(elf_binary).unwrap();
         let header = elf.header;
         assert_eq!(header.pt1.magic, [0x7f, 0x45, 0x4c, 0x46], "invalid elf.");
         let mut proc_data = self.data.lock();
         let memory = &mut proc_data.memory;
+        let mut head_va = 0;
         // Load prog header
         for i in 0..elf.header.pt2.ph_count() {
             let ph = elf.program_header(i).unwrap();
             if ph.get_type().unwrap() == xmas_elf::program::Type::Load {
                 let start_va = VirtAddr::from(ph.virtual_addr() as usize);
                 let end_va = start_va.clone().to_offset(ph.mem_size() as isize);
+                if head_va == 0 {
+                    head_va = start_va.addr;
+                }
                 let mut flags = PTEFlags::U;
                 if ph.flags().is_read() {
                     flags |= PTEFlags::R;
@@ -144,6 +152,7 @@ impl Process {
                     };
                     page.copy_u8(inpage_offset, &data[begin..end]);
                     let vpn: VirtPageId = VirtAddr::from(ph.virtual_addr() as usize + PAGE_SIZE * pg).into();
+                    // info!("Mapped {}", VirtAddr::from(vpn));
                     max_vpn = vpn;
                     memory.map(vpn, page, flags);
                 }
@@ -167,10 +176,27 @@ impl Process {
         memory.min_brk = memory.prog_end;
         // Setup user stack
         memory.increase_user_stack();
+        let sp = memory.stack_base.get_addr();
         let ctx = proc_data.get_trap_context();
-        ctx.reg[TrapContext::sp] = 0x8000_0000;
+        ctx.reg[TrapContext::sp] = sp;
         // Setup entry point
         ctx.sepc = elf.header.pt2.entry_point() as usize;
+        // Setup aux
+        aux_table.push(Aux::new(aux::AT_PHDR, head_va + elf.header.pt2.ph_offset() as usize));
+        aux_table.push(Aux::new(aux::AT_PHENT, elf.header.pt2.ph_entry_size() as usize));
+        aux_table.push(Aux::new(aux::AT_PHNUM, elf.header.pt2.ph_count() as usize));
+        aux_table.push(Aux::new(aux::AT_PAGESZ, PAGE_SIZE));
+        aux_table.push(Aux::new(aux::AT_BASE, 0));
+        aux_table.push(Aux::new(aux::AT_FLAGS, 0));
+        aux_table.push(Aux::new(aux::AT_ENTRY, elf.header.pt2.entry_point() as usize));
+        aux_table.push(Aux::new(aux::AT_UID, 0));
+        aux_table.push(Aux::new(aux::AT_EUID, 0));
+        aux_table.push(Aux::new(aux::AT_GID, 0));
+        aux_table.push(Aux::new(aux::AT_EGID, 0));
+        aux_table.push(Aux::new(aux::AT_HWCAP, 0x112d));
+        aux_table.push(Aux::new(aux::AT_CLKTCK, CLOCK_FREQ));
+        aux_table.push(Aux::new(aux::AT_SECURE, 0));
+        aux_table
     }
 
     pub fn execve(&self, file: Arc<dyn File>, argv: Vec<String>, env: Vec<String>) -> usize {
@@ -184,7 +210,7 @@ impl Process {
         // clear old user space
         self.data.lock().memory.reset();
         // load new
-        self.load_elf(binary_slice);
+        let mut aux_table = self.load_elf(binary_slice);
         // setup argv and env
         let mut proc_data = self.data.lock();
         let context = proc_data.get_trap_context();
@@ -193,32 +219,43 @@ impl Process {
             .into_pa(proc_data.memory.get_pagetable()).to_offset(PAGE_SIZE as isize);
         let mut sp = stack_bottom.clone(); // sp always point a 'valid' data if any valid data available.
 
+        /* Push strings */
+        let pusher = |s: String, sp: PhyAddr| -> (PhyAddr, *const u8) {
+            let len = s.len();
+            let sp = sp.to_offset(-(len as isize + 1)).round_down_to(16);
+            let mut_slice = sp.get_slice_mut::<u8>(len + 1);
+            mut_slice[..len].copy_from_slice(s.as_bytes());
+            mut_slice[len] = 0u8;
+            let offset = stack_bottom.get_addr() - sp.get_addr();
+            (sp, (virt_sp - offset) as *const u8)
+        };
+
         let mut env_table: Vec<*const u8> = vec![];
         for a in env {
-            let len = a.len();
-            sp = sp.to_offset(-1);
-            sp.get_slice_mut::<u8>(1)[0] = 0u8;
-            sp = sp.to_offset(-(len as isize));
-            sp.get_slice_mut::<u8>(len).copy_from_slice(a.as_bytes());
-            let offset = stack_bottom.get_addr() - sp.get_addr();
-            env_table.push((virt_sp - offset) as *const u8);
+            let (new_sp, vptr) = pusher(a, sp);
+            sp = new_sp;
+            env_table.push(vptr);
         }
         env_table.push(0 as *const u8);
         sp = sp.round_down_to(size_of::<usize>());
 
         let mut argv_table: Vec<*const u8> = vec![];
         for a in argv {
-            let len = a.len();
-            sp = sp.to_offset(-1);
-            sp.get_slice_mut::<u8>(1)[0] = 0u8;
-            sp = sp.to_offset(-(len as isize));
-            sp.get_slice_mut::<u8>(len).copy_from_slice(a.as_bytes());
-            let offset = stack_bottom.get_addr() - sp.get_addr();
-            argv_table.push((virt_sp - offset) as *const u8);
+            let (new_sp, vptr) = pusher(a, sp);
+            sp = new_sp;
+            argv_table.push(vptr);
         }
         argv_table.push(0 as *const u8);
         sp = sp.round_down_to(size_of::<usize>());
 
+        // aux
+        // aux_table.push(Aux::new(aux::AT_RANDOM, 0));
+        aux_table.push(Aux::new(aux::AT_EXECFN, argv_table[0] as usize));
+        aux_table.push(Aux::new(aux::AT_NULL, 0));
+
+        /* Push pointers tables */
+        sp = sp.to_offset(-((size_of::<Aux>() * aux_table.len()) as isize));
+        sp.get_slice_mut::<Aux>(aux_table.len()).copy_from_slice(aux_table.as_slice());
         sp = sp.to_offset(-((size_of::<*const u8>() * env_table.len()) as isize));
         sp.get_slice_mut::<*const u8>(env_table.len()).copy_from_slice(env_table.as_slice());
         let envp = virt_sp - (stack_bottom.get_addr() - sp.get_addr());
@@ -226,34 +263,60 @@ impl Process {
         sp.get_slice_mut::<*const u8>(argv_table.len()).copy_from_slice(argv_table.as_slice());
         let argv = virt_sp - (stack_bottom.get_addr() - sp.get_addr());
 
-        // push envp, argv, argc
-        sp = sp.to_offset(-(size_of::<*const u8>() as isize));
-        *(sp.get_ref_mut::<*const u8>()) = envp as *const u8;
-        sp = sp.to_offset(-(size_of::<*const u8>() as isize));
-        *(sp.get_ref_mut::<*const u8>()) = argv as *const u8;
-        sp = sp.to_offset(-(size_of::<*const u8>() as isize));
-        *(sp.get_ref_mut::<*const u8>()) = (argv_table.len() - 1) as *const u8;
+        if false {
+            // OmochaOS Type
+
+            // push envp, argv, argc
+            sp = sp.to_offset(-(size_of::<*const u8>() as isize));
+            *(sp.get_ref_mut::<*const u8>()) = envp as *const u8;
+            sp = sp.to_offset(-(size_of::<*const u8>() as isize));
+            *(sp.get_ref_mut::<*const u8>()) = argv as *const u8;
+            sp = sp.to_offset(-(size_of::<*const u8>() as isize));
+            *(sp.get_ref_mut::<*const u8>()) = (argv_table.len() - 1) as *const u8;
+
+            /* stack should be like:
+             * |  0x80000000  | <--- Stack base
+             * +--------------+
+             * | env strings  |
+             * |    padding   |
+             * | arg strings  |
+             * |    padding   |
+             * +--------------+
+             * |  TODO: auxv table  |
+             * |  envp table  |
+             * |  argv table  |
+             * +--------------+
+             * |     envp     |
+             * |     argv     |
+             * |     argc     |
+             * +--------------+
+             * |      sp      | <--- user stack top
+             */
+        } else {
+            // Linux Type
+
+            // push envp, argv, argc
+            sp = sp.to_offset(-(size_of::<usize>() as isize));
+            *(sp.get_ref_mut::<usize>()) = argv_table.len() - 1;
+
+            /* stack should be like:
+             * |  0x80000000  | <--- Stack base
+             * +--------------+
+             * | env strings  |
+             * |    padding   |
+             * | arg strings  |
+             * |    padding   |
+             * +--------------+
+             * |  auxv table  |
+             * |  envp table  |
+             * |  argv table  |
+             * |     argc     |
+             * +--------------+
+             * |      sp      | <--- user stack top
+             */
+        }
 
         let virt_sp = virt_sp - (stack_bottom.get_addr() - sp.get_addr());
-
-        /* stack should be like:
-         * |  0x80000000  | <--- Stack base
-         * +--------------+
-         * | env strings  |
-         * |    padding   |
-         * | arg strings  |
-         * |    padding   |
-         * +--------------+
-         * |  TODO: auxv table  |
-         * |  envp table  |
-         * |  argv table  |
-         * +--------------+
-         * |     envp     |
-         * |     argv     |
-         * |     argc     |
-         * +--------------+
-         * |      sp      | <--- user stack top
-         */
 
         // setup context
         context.reg[TrapContext::sp] = virt_sp;

@@ -10,6 +10,7 @@
 #![feature(panic_info_message, fmt_internals, strict_provenance, error_in_core, macro_metavar_expr)]
 #![feature(let_chains)]
 #![feature(get_mut_unchecked)]
+#![feature(step_trait)]
 
 #![allow(dead_code)] // Development only
 #![allow(warnings)]

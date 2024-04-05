@@ -14,7 +14,7 @@ use riscv::register::scause::{Exception, Scause, Trap};
 use riscv::register::sstatus::{SPP, Sstatus};
 use crate::cpu::CPU;
 use crate::interrupt::interrupt_handler;
-use crate::memory::PAGE_SIZE;
+use crate::memory::{Addr, PAGE_SIZE, PhyPage, PTEFlags, VirtAddr, VirtPageId};
 use crate::syscall::{Syscall, syscall_handler};
 
 global_asm!(include_str!("trap.S"));
@@ -87,14 +87,46 @@ pub fn disable_trap() {
 }
 
 fn exception_handler(trap_context: &TrapContext, exp: scause::Exception, sstatus: sstatus::Sstatus, sepc: usize, stval: usize, from_user: bool) -> Option<usize> {
-    // TODO: handle page fault
+    // TODO: handle page fault for CoW
     match exp {
         Exception::Breakpoint => {
             warn!("Breakpoint triggered.");
             Some(2) // ebreak length
         }
+        Exception::StorePageFault | Exception::LoadPageFault => {
+            // handle page fault
+            let addr = VirtAddr::from(stval);
+            let proc = CPU::get_current().unwrap().get_process().unwrap();
+            let mut proc_data = proc.data.lock();
+            // if is stack overflow, then try to allocate new stack
+            // if user-prog requires too large stack size and new access is beyond next un-allocated page
+            // we do not consider it as a stack overflow
+            let addr_page = VirtPageId::from(addr);
+            if addr_page == VirtPageId::from(proc_data.memory.stack_top.to_offset(-1))
+                && !proc_data.memory.is_mapped(&addr_page) {
+                // is new unallocated stack
+                proc_data.memory.increase_user_stack();
+                return Some(0) // retry the access
+            }
+
+            error!("Unhandled Page-Fault happened: {:?} from {}: sepc: {:#x}, stval: {:#x}", exp,
+                    if let SPP::User = sstatus.spp() { "user" } else { "kernel" },
+                    sepc, stval);
+
+            if from_user && let Some(proc) = CPU::get_current().unwrap().get_process() {
+                error!("Happened on PID {}", proc.pid.pid());
+            }
+
+            let _ = sbi::system_reset::system_reset(
+                sbi::system_reset::ResetType::Shutdown,
+                sbi::system_reset::ResetReason::SystemFailure,
+            );
+            // 万一呢？
+            loop {}
+            None
+        }
         _ => {
-            error!("Exception {:?} from {}: spec: {:#x}, stval: {:#x}", exp,
+            error!("Exception {:?} from {}: sepc: {:#x}, stval: {:#x}", exp,
                     if let SPP::User = sstatus.spp() { "user" } else { "kernel" },
                     sepc, stval);
 
@@ -169,8 +201,12 @@ fn user_trap_handler(trap_context: &mut TrapContext) {
                     ]; // make slice sized
                     let id = trap_context.reg[17];
                     trap_context.sepc += 4;
-                    let ret = syscall_handler(Syscall::from(id), &args);
-                    trap_context.reg[TrapContext::a0] = ret;
+                    if let Ok(syscall) = Syscall::try_from(id) {
+                        let ret = syscall_handler(syscall, &args);
+                        trap_context.reg[TrapContext::a0] = ret;
+                    } else {
+                        error!("Unknown Syscall ID {id}");
+                    }
                 }
                 _ => {
                     if let Some(skip_bytes) = exception_handler(trap_context, exp, sstatus, sepc, stval, true) {

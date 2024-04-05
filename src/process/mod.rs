@@ -12,6 +12,7 @@ mod task;
 // kernel task
 mod process_memory;
 mod condvar;
+mod aux_;
 
 
 use alloc::string::String;
