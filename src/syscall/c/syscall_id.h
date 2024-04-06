@@ -42,6 +42,7 @@
 #define SYS_geteuid 175
 #define SYS_getgid 176
 #define SYS_getegid 177
+#define SYS_gettid 178
 #define SYS_setuid 146
 #define SYS_setgid 144
 #define SYS_exit_group 94

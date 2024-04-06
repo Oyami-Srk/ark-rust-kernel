@@ -27,6 +27,7 @@ use crate::process::{do_yield, PROCESS_MANAGER, TaskContext};
 use crate::process::aux_ as aux;
 use crate::process::aux_::Aux;
 use crate::process::condvar::Condvar;
+use crate::syscall::{SyscallError, SyscallResult};
 use super::process_memory::ProcessMemory;
 
 #[derive(Copy, Clone, PartialEq)]
@@ -432,17 +433,12 @@ impl ProcessManager {
         proc_data.condvar_waiting_for_exit.wakeup();
     }
 
-    pub fn wait_for(pm: &Spinlock<ProcessManager>, parent: Arc<Process>, pid: isize, exit_code: &mut usize, option: usize) -> isize {
-        if pid <= 0 && option != WNOHANG {
-            error!("Only wait for specified pid with hang supported.");
-            return -2; // error
-        }
-
+    pub fn wait_for(pm: &Spinlock<ProcessManager>, parent: Arc<Process>, pid: isize, exit_code: &mut usize, option: usize) -> SyscallResult {
         'outer: loop {
             let mut proc_data = parent.data.lock();
             proc_data.children.retain(|p| p.strong_count() > 0);
             if proc_data.children.len() == 0 {
-                break 'outer -1; // no child
+                break 'outer Err(SyscallError::ECHILD); // No child
             }
             for child in &proc_data.children {
                 let child = child.upgrade().unwrap();
@@ -463,24 +459,26 @@ impl ProcessManager {
                     assert_eq!(Arc::strong_count(&child), 1, "Still someone holding child...");
                     drop(child);
 
-                    break 'outer pid;
+                    break 'outer Ok(pid as usize);
                 }
             }
             if option == WNOHANG {
-                break 'outer 0; // no child found, no hang
+                break 'outer Ok(0); // no child found, no hang
             } else {
                 // no child found, hang
-                let pm_guard = pm.lock();
-                let waited_child = pm_guard.process_list.get(&(pid as usize));
-                if let Some(waited_child) = waited_child {
-                    let waited_child_data = waited_child.data.lock();
-                    drop(proc_data);
-                    waited_child_data.condvar_waiting_for_exit.wait();
-                } else {
-                    // not found one
-                    break 'outer -1;
+                drop(proc_data);
+                if pid > 0{
+                    let pm_guard = pm.lock();
+                    let waited_child = pm_guard.process_list.get(&(pid as usize));
+                    if let Some(waited_child) = waited_child {
+                        let waited_child_data = waited_child.data.lock();
+                        waited_child_data.condvar_waiting_for_exit.wait();
+                    } else {
+                        // not found one
+                        break 'outer Err(SyscallError::ECHILD);
+                    }
+                    drop(pm_guard);
                 }
-                drop(pm_guard);
                 do_yield();
             }
         }

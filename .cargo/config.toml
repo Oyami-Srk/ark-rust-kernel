@@ -10,6 +10,7 @@ runner = """qemu-system-riscv64
  -bios ../third-party/rustsbi-qemu/target/riscv64imac-unknown-none-elf/release/rustsbi-qemu.bin
  -drive file=../rootfs/rootfs.img,if=none,format=raw,id=x0
  -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
+ -s
  -kernel
 """
 rustflags = [

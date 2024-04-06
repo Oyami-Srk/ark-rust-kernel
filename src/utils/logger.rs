@@ -6,6 +6,7 @@
 //!   - 2024/03/15: File created.
 
 use log::{Level, LevelFilter, Log, Metadata, Record};
+use crate::config::{CLOCK_FREQ, MS_PER_SECOND};
 use crate::println;
 
 struct Logger;
@@ -16,7 +17,10 @@ impl Log for Logger {
     }
 
     fn log(&self, record: &Record) {
-        println!("[{}] {}", record.level(), record.args()); // TODO: add kernel ticks
+        let ticks = riscv::register::time::read64();
+        let sec = (ticks as usize) / (CLOCK_FREQ);
+        let sub_sec = (ticks as usize) % (CLOCK_FREQ);
+        println!("[{}.{}][{: <5}] {}", sec, sub_sec, record.level(), record.args());
     }
 
     fn flush(&self) {
@@ -30,7 +34,7 @@ pub fn init() {
         Some("error") => LevelFilter::Error,
         Some("warn") => LevelFilter::Warn,
         Some("info") => LevelFilter::Info,
-        Some("debugu") => LevelFilter::Debug,
+        Some("debug") => LevelFilter::Debug,
         Some("trace") => LevelFilter::Trace,
         _ => LevelFilter::Info
     });

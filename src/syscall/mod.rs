@@ -15,6 +15,7 @@ use log::{error, info, trace, warn};
 use riscv::asm::ebreak;
 use riscv::register::medeleg::set_breakpoint;
 pub use id::Syscall;
+pub use error::{SyscallResult, SyscallError};
 use crate::cpu::CPU;
 use crate::memory::{PhyAddr, VirtAddr};
 
@@ -34,8 +35,9 @@ macro_rules! do_syscall {
 }
 
 pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
-    trace!("[Syscall] {:?}, args = [{:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}]",
-                            syscall, args[0], args[1], args[2], args[3], args[4], args[5]);
+    let pid = CPU::get_current().unwrap().get_process().unwrap().pid.pid();
+    trace!("[Syscall][PID {}] {:?}, args = [{:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}]",
+                            pid, syscall, args[0], args[1], args[2], args[3], args[4], args[5]);
     let ret = match syscall {
         /* Filesystem */
         Syscall::openat => do_syscall!(file::open, args, 4),
@@ -74,6 +76,7 @@ pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
         Syscall::geteuid => dummy::ret_zero(syscall),
         Syscall::getgid => dummy::ret_zero(syscall),
         Syscall::getegid => dummy::ret_zero(syscall),
+        Syscall::gettid => dummy::ret_zero(syscall),
         Syscall::setuid => dummy::ret_zero(syscall),
         Syscall::setgid => dummy::ret_zero(syscall),
         Syscall::exit_group => dummy::ret_eperm(syscall),
@@ -99,11 +102,11 @@ pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
 
     match ret {
         Ok(v) => {
-            trace!("[Syscall] {:?}, ret = Ok({:#x})", syscall, v);
+            trace!("[Syscall][PID {}] {:?}, ret = Ok({:#x})", pid, syscall, v);
             v
         }
         Err(e) => {
-            trace!("[Syscall] {:?}, ret = Err({:?})", syscall, e);
+            trace!("[Syscall][PID {}] {:?}, ret = Err({:?})", pid, syscall, e);
             (-(e as isize)) as usize
         }
     }

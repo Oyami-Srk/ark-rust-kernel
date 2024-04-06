@@ -8,11 +8,11 @@ use crate::memory::{Addr, VirtAddr};
 use crate::syscall::error::SyscallResult;
 
 pub fn sleep_ticks(ticks: usize) -> SyscallResult {
-    let current_ticks = time::read() / (CLOCK_FREQ / TICKS_PER_SECOND);
-    while (time::read() / (CLOCK_FREQ / TICKS_PER_SECOND)) - current_ticks < ticks {
+    let current_ticks = time::read64() as usize / (CLOCK_FREQ / TICKS_PER_SECOND);
+    while (time::read64() as usize / (CLOCK_FREQ / TICKS_PER_SECOND)) - current_ticks < ticks {
         timer::sleep_on_timer();
     }
-    Ok(time::read() / (CLOCK_FREQ / TICKS_PER_SECOND))
+    Ok(time::read64() as usize / (CLOCK_FREQ / TICKS_PER_SECOND))
 }
 
 pub fn breakpoint(id: usize, data: VirtAddr, optional_length: usize) -> SyscallResult {

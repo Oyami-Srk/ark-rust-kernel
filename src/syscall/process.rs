@@ -55,7 +55,7 @@ pub fn execve(path: VirtAddr, argv: VirtAddr, envp: VirtAddr) -> SyscallResult {
     };
 
     argv.insert(0, fullpath);
-    env.insert(0, "PATH=/".into());
+    env.insert(0, "PATH=/:/mnt".into());
 
     drop(proc_data);
     Ok(proc.execve(file, argv, env))
@@ -72,7 +72,7 @@ pub fn wait_for(pid: usize, exit_code_buf: VirtAddr, option: usize) -> SyscallRe
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     // TODO: unwrap is not safe
     let exit_code = exit_code_buf.into_pa(proc.data.lock().memory.get_pagetable()).unwrap().get_ref_mut::<usize>();
-    Ok(ProcessManager::wait_for(get_process_manager(), proc, pid, exit_code, option) as usize)
+    ProcessManager::wait_for(get_process_manager(), proc, pid, exit_code, option)
 }
 
 pub fn getppid() -> SyscallResult {
