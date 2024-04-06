@@ -153,7 +153,12 @@ impl ProcessMemory {
     }
 
     fn check_collapse(&self, start_vpn: VirtPageId, pages: usize, is_increasing: bool) -> bool {
-        for vpn in if is_increasing { start_vpn.id..start_vpn.id + pages } else { start_vpn.id - pages + 1..start_vpn.id + 1 } {
+        let range = if is_increasing {
+            start_vpn.id..(start_vpn.id + pages)
+        } else {
+            (start_vpn.id - pages + 1)..(start_vpn.id + 1)
+        };
+        for vpn in range {
             let vpn = VirtPageId::from(vpn);
             if self.maps.contains_key(&vpn) {
                 return true;
@@ -177,30 +182,38 @@ impl ProcessMemory {
         } else {
             // addr is not fixed, we alloc this.
             let first_page = {
-                let mmap_base_vpn = VirtPageId::from(self.mmap_base);
+                let mmap_base_vpn = VirtPageId::from(self.mmap_base) - 1;
                 if (!self.maps.contains_key(&mmap_base_vpn)) &&
                     (!self.check_collapse(mmap_base_vpn, pages, false)) {
-                    Some(mmap_base_vpn)
+                    Some(mmap_base_vpn - pages + 1)
                 } else {
                     let brk_page = VirtPageId::from(self.brk.to_offset(-1).round_up());
                     self.maps.keys()
                         .filter_map(|mapped_vpn| {
-                            if mapped_vpn > &VirtPageId::from(self.mmap_base) || mapped_vpn <= &brk_page {
+                            if mapped_vpn >= &VirtPageId::from(self.mmap_base) || mapped_vpn <= &brk_page {
                                 None
                             } else {
-                                Some(VirtPageId::from(mapped_vpn.id - 1))
+                                let next = mapped_vpn.clone() - 1;
+                                if self.maps.contains_key(&next) {
+                                    None
+                                } else {
+                                    Some(next)
+                                }
                             }
                         })
-                        .find(|first_not_mapped_vpn| {
-                            // info!("Checking {}", first_not_mapped_vpn);
-                            !self.check_collapse(first_not_mapped_vpn.clone(), pages, false)
+                        .find_map(|first_not_mapped_vpn| {
+                            if !self.check_collapse(first_not_mapped_vpn, pages, false) {
+                                Some(first_not_mapped_vpn - pages + 1)
+                            } else {
+                                None
+                            }
                         })
                 }
             };
 
 
             if let Some(first_not_mapped_vpn) = first_page {
-                for vpn in first_not_mapped_vpn.id - pages + 1..first_not_mapped_vpn.id + 1 {
+                for vpn in first_not_mapped_vpn.id..first_not_mapped_vpn.id + pages {
                     let vpn = VirtPageId::from(vpn);
                     let page = PhyPage::alloc();
                     self.map(vpn, page, flags);
