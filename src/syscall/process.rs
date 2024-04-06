@@ -54,8 +54,8 @@ pub fn execve(path: VirtAddr, argv: VirtAddr, envp: VirtAddr) -> SyscallResult {
         return Err(SyscallError::EIO);
     };
 
-    argv.insert(0, fullpath);
-    env.insert(0, "PATH=/:/mnt".into());
+    // argv.insert(0, fullpath);
+    // env.insert(0, "PATH=/:/mnt".into());
 
     drop(proc_data);
     Ok(proc.execve(file, argv, env))

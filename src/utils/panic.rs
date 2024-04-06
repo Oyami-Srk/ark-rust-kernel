@@ -23,23 +23,6 @@ fn panic(info: &PanicInfo) -> ! {
     }
     error!("==============================");
 
-    unsafe {
-        extern "C" {
-            fn boot_sp();
-        }
-        let mut fp: usize;
-        let stop = boot_sp as usize;
-        asm!("mv {}, s0", out(reg) fp);
-        error!("======== RISCV Backtrace ========");
-        for i in 0..10 {
-            if fp == stop {
-                break;
-            }
-            error!("#{}:ra={:#x}", i, *((fp - 8) as *const usize));
-            fp = *((fp - 16) as *const usize);
-        }
-        error!("=================================");
-    }
     for i in 0..10 {
         riscv::asm::delay(0x1000000);
     }

@@ -52,6 +52,7 @@ pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
         Syscall::fstat => do_syscall!(file::fstat, args, 2),
         Syscall::newfstatat => do_syscall!(file::newfstatat, args, 3),
         Syscall::getdents64 => do_syscall!(file::getdents64, args, 3),
+        Syscall::linkat => do_syscall!(file::linkat, args, 5),
         /* Process */
         Syscall::exit => do_syscall!(process::exit, args, 1),
         Syscall::clone => do_syscall!(process::clone, args, 2),
@@ -91,7 +92,6 @@ pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
         Syscall::rt_sigprocmask => dummy::unimp(syscall),
         /* Not too urgent to be Implemented */
         Syscall::dup3 => dummy::unimp(syscall),
-        Syscall::linkat => dummy::unimp(syscall),
         Syscall::unlinkat => dummy::unimp(syscall),
         Syscall::umount2 => dummy::unimp(syscall),
         Syscall::times => dummy::unimp(syscall),

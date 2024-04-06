@@ -343,7 +343,7 @@ impl DirEntry {
         return unsafe { ROOT_DENTRY.as_ref().unwrap() }.clone();
     }
 
-    fn get_parent(path: &str, cwd: Option<Arc<DirEntry>>) -> Option<(Arc<DirEntry>, &str)> {
+    pub fn get_parent(path: &str, cwd: Option<Arc<DirEntry>>) -> Option<(Arc<DirEntry>, &str)> {
         let root_dentry_arc = Self::root();
         let (cwd, path) = if let Some(cwd) = cwd && !path.starts_with("/") {
             (cwd, path)

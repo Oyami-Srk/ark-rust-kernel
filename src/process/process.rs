@@ -13,7 +13,7 @@ use alloc::vec::Vec;
 use core::cmp::max;
 use core::mem::size_of;
 use fdt::standard_nodes::Memory;
-use log::{error, info, warn};
+use log::{error, info, trace, warn};
 use riscv::register::mcause::Trap;
 use crate::core::Spinlock;
 use crate::cpu::CPU;
@@ -160,7 +160,7 @@ impl Process {
 
                 let need_vpn = VirtPageId::from(VirtAddr::from(ph.virtual_addr() as usize + ph.mem_size() as usize));
                 if need_vpn > max_vpn {
-                    info!("Allocating {} pages for virt memory.", need_vpn.id - max_vpn.id);
+                    trace!("Allocating {} pages for virt memory.", need_vpn.id - max_vpn.id);
                     for pg in 0..need_vpn.id - max_vpn.id {
                         let page = PhyPage::alloc();
                         memory.map(VirtPageId::from(max_vpn.id + 1 + pg), page, flags);
@@ -332,7 +332,7 @@ impl Process {
 
 impl Drop for Process {
     fn drop(&mut self) {
-        info!("Dropping process {}", self.pid.pid());
+        trace!("Dropping process {}", self.pid.pid());
     }
 }
 
@@ -408,7 +408,7 @@ impl ProcessManager {
     }
 
     pub fn exit(&mut self, proc: Arc<Process>, exit_code: usize) {
-        info!("Proc {} want to exit.", proc.pid.pid());
+        trace!("Proc {} want to exit.", proc.pid.pid());
         let strong_count = Arc::strong_count(&proc);
         // There is 3 strong count expected: 1 in ProcessManager's BTree Map. 1 in CPU::current_process. 1 in this function.
         assert_eq!(strong_count, 3, "There is some other holding process' strong ref.");

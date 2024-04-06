@@ -8,8 +8,9 @@
 use core::fmt::{Display, Formatter};
 use core::iter::Step;
 use core::ops::{Add, Sub};
+use riscv::asm::sfence_vma_all;
 use crate::cpu::CPU;
-use crate::memory::{PAGE_SIZE, PageTable};
+use crate::memory::{get_kernel_page_table, PAGE_SIZE, PageTable, PTEFlags};
 use crate::utils::error::Result;
 
 // Declarations
@@ -281,6 +282,29 @@ impl PhyPageId {}
 impl VirtAddr {
     pub fn into_pa(self, page_table: &PageTable) -> Option<PhyAddr> {
         page_table.translate(self)
+    }
+
+    pub fn access_continuously<F>(&self, page_table: &PageTable, size: usize, accessor: F)
+        where F: Fn(PhyAddr) -> () {
+        // Using 0xC000_0000..0xCFFF_FFFF as a manipulate space
+        let start_trampoline = PhyAddr::from(0xC000_0000);
+        let mut kpage_table = get_kernel_page_table().lock();
+        let start_page = VirtPageId::from(self.clone());
+        let end_page = VirtPageId::from(self.to_offset(size as isize));
+        for pg in start_page.id..=end_page.id {
+            let n = pg - start_page.id;
+            let pg = VirtPageId::from(pg);
+            let pg_pa = page_table.translate(VirtAddr::from(pg)).unwrap();
+            kpage_table.map(
+                VirtAddr::from(PhyAddr::from(PhyPageId::from(start_trampoline) + n).get_addr()),
+                pg_pa, PTEFlags::R | PTEFlags::W | PTEFlags::X);
+        }
+        sfence_vma_all();
+        // do accessor
+        accessor(start_trampoline.to_offset((self.get_addr() % PAGE_SIZE) as isize));
+        // clean up
+        kpage_table.unmap_many(VirtAddr::from(start_trampoline.get_addr()), end_page.id - start_page.id + 1);
+        sfence_vma_all();
     }
 }
 

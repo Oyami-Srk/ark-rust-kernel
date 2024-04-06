@@ -86,27 +86,27 @@ struct VirtIOBlockInode {
 
 impl Inode for VirtIOBlockInode {
     fn lookup(&self, name: &str, this_dentry: Weak<DirEntry>) -> Option<DirEntry> {
-        unimplemented!()
+        None
     }
 
     fn link(&self, inode: Arc<dyn Inode>, name: &str) -> EmptyResult {
-        unimplemented!()
+        Err("Cannot perform link on block device.".into())
     }
 
     fn unlink(&self, name: &str) -> EmptyResult {
-        unimplemented!()
+        Err("Cannot perform unlink on block device.".into())
     }
 
     fn mkdir(&self, name: &str) -> crate::utils::error::Result<Arc<dyn Inode>> {
-        unimplemented!()
+        Err("Cannot perform mkdir on block device.".into())
     }
 
     fn rmdir(&self, name: &str) -> EmptyResult {
-        unimplemented!()
+        Err("Cannot perform rmdir on block device.".into())
     }
 
     fn read_dir(&self, this_dentry: Weak<DirEntry>) -> crate::utils::error::Result<Vec<DirEntry>> {
-        unimplemented!()
+        Err("Cannot perform read_dir on block device.".into())
     }
 
     fn open(&self, dentry: Arc<DirEntry>, flags: FileOpenFlags, mode: FileModes) -> crate::utils::error::Result<Arc<dyn File>> {

@@ -127,29 +127,6 @@ fn exception_handler(trap_context: &TrapContext, exp: scause::Exception, sstatus
                 error!("Happened on PID {}", proc.pid.pid());
             }
 
-            /*
-            unsafe {
-                extern "C" {
-                    fn boot_sp();
-                }
-                let stop = if let Some(proc) = CPU::get_current().unwrap().get_process() {
-                    proc.data.lock().kernel_stack[0].id.id * PAGE_SIZE
-                } else {
-                    boot_sp as usize
-                };
-                let mut fp = trap_context.reg[TrapContext::s0];
-                error!("======== RISCV Backtrace ========");
-                for i in 0..10 {
-                    if fp == stop || fp == 0 {
-                        break;
-                    }
-                    error!("#{}:ra={:#x}", i, *((fp - 8) as *const usize));
-                    fp = *((fp - 16) as *const usize);
-                }
-                error!("=================================");
-            }
-            */
-
             let _ = sbi::system_reset::system_reset(
                 sbi::system_reset::ResetType::Shutdown,
                 sbi::system_reset::ResetReason::SystemFailure,

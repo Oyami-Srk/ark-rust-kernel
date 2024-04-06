@@ -74,8 +74,9 @@ pub const PROG_BINARIES: [&[u8]; {}] = ["#, count);
 fn bundle_init_user_program<T: Write>(mut writer: T, init_elf_path: &str) {
     // create_binary(init_elf_path);
     create_disassembly(init_elf_path);
+// pub const PROG_BINARIES: [&[u8]; 1] = [include_bytes!("../../{}")];
     writeln!(writer, r#"
-pub const PROG_BINARIES: [&[u8]; 1] = [include_bytes!("../../{}")];
+pub const INIT_BINARY: &[u8] = include_bytes!("../../{}");
 "#, init_elf_path);
     println!("cargo:rerun-if-changed={}", init_elf_path);
 }

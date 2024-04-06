@@ -47,13 +47,9 @@ pub fn get_process_manager() -> &'static Spinlock<ProcessManager> {
 }
 
 pub fn init() {
-    // TODO: setup process
-    info!("Testing...");
-
-    for binary in init::PROG_BINARIES {
-        PROCESS_MANAGER.lock().spawn().load_elf(binary);
-    }
-    info!("Loaded...");
+    let mut init_proc = PROCESS_MANAGER.lock().spawn();
+    init_proc.load_elf(init::INIT_BINARY);
+    info!("Init proc is loaded.");
 }
 
 // Worker is running under every cpu

@@ -1,3 +1,4 @@
+use alloc::sync::Arc;
 use alloc::vec;
 use core::fmt::Write;
 use core::ops::DerefMut;
@@ -5,11 +6,33 @@ use log::info;
 use crate::cpu::CPU;
 use crate::memory::{VirtAddr, Addr, PageTable, PhyPageId};
 use crate::filesystem as fs;
-use crate::filesystem::{DirEntry, FileModes, FileOpenFlags, InodeStat, SeekPosition};
-use crate::filesystem::DirEntryType::File;
+use crate::filesystem::{DirEntry, File, FileModes, FileOpenFlags, InodeStat, SeekPosition};
+use crate::process::ProcessData;
 use crate::utils::error::EmptyResult;
 use crate::syscall::c::*;
 use crate::syscall::error::{SyscallError, SyscallResult};
+
+fn get_file_from_fd(proc_data: &ProcessData, fd: usize) -> core::result::Result<Arc<dyn File>, SyscallError> {
+    if fd == AT_FDCWD {
+        proc_data.cwd.clone()
+            .open(FileOpenFlags::O_DIRECTORY | FileOpenFlags::O_RDWR, FileModes::RWX)
+            .map_err(|_| SyscallError::ENOENT)
+    } else if let Some(Some(file)) = proc_data.files.get(fd) {
+        Ok(file.clone())
+    } else {
+        Err(SyscallError::EBADF)
+    }
+}
+
+fn get_dentry_from_fd(proc_data: &ProcessData, fd: usize) -> core::result::Result<Arc<DirEntry>, SyscallError> {
+    if fd == AT_FDCWD {
+        Ok(proc_data.cwd.clone())
+    } else if let Some(Some(file)) = proc_data.files.get(fd) {
+        Ok(file.get_dentry())
+    } else {
+        Err(SyscallError::EBADF)
+    }
+}
 
 /* For Single File */
 
@@ -17,15 +40,7 @@ pub fn open(parent_fd: usize, filename_buf: VirtAddr, flags: FileOpenFlags, mode
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let mut proc_data = proc.data.lock();
     let filename = filename_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_cstr();
-    let cwd = if parent_fd == AT_FDCWD {
-        (&proc_data.cwd).clone()
-    } else {
-        if let Some(file) = &proc_data.files[parent_fd] {
-            file.get_dentry().clone()
-        } else {
-            return Err(SyscallError::ENOENT);
-        }
-    };
+    let cwd = get_dentry_from_fd(&proc_data, parent_fd)?;
     if flags.is_create() {
         todo!("Create todo")
     } else {
@@ -71,11 +86,7 @@ pub fn read(fd: usize, user_buf: VirtAddr, len: usize) -> SyscallResult {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let proc_data = proc.data.lock();
 
-    let file = if let Some(Some(file)) = &proc_data.files.get(fd) {
-        file.clone()
-    } else {
-        return Err(SyscallError::EBADF);
-    };
+    let file = get_file_from_fd(&proc_data, fd)?;
     drop(proc_data);
 
     let mut data = vec![0u8; len];
@@ -96,11 +107,7 @@ pub fn write(fd: usize, user_buf: VirtAddr, len: usize) -> SyscallResult {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let proc_data = proc.data.lock();
 
-    let file = if let Some(Some(file)) = &proc_data.files.get(fd) {
-        file.clone()
-    } else {
-        return Err(SyscallError::EBADF);
-    };
+    let file = get_file_from_fd(&proc_data, fd)?;
     let phy_buf = user_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_u8(len);
     drop(proc_data);
 
@@ -124,11 +131,7 @@ pub fn readv(fd: usize, io_vecs: VirtAddr, len: usize) -> SyscallResult {
     let page_table = unsafe {
         (proc_data.memory.get_pagetable() as *const PageTable).as_ref().unwrap()
     };
-    let file = if let Some(Some(file)) = &proc_data.files.get(fd) {
-        file.clone()
-    } else {
-        return Err(SyscallError::EBADF);
-    };
+    let file = get_file_from_fd(&proc_data, fd)?;
     drop(proc_data);
 
     let io_vecs = io_vecs.into_pa(page_table).unwrap().get_slice::<IOVec>(len);
@@ -155,11 +158,7 @@ pub fn writev(fd: usize, io_vecs: VirtAddr, len: usize) -> SyscallResult {
     let page_table = unsafe {
         (proc_data.memory.get_pagetable() as *const PageTable).as_ref().unwrap()
     };
-    let file = if let Some(Some(file)) = &proc_data.files.get(fd) {
-        file.clone()
-    } else {
-        return Err(SyscallError::EBADF);
-    };
+    let file = get_file_from_fd(&proc_data, fd)?;
     drop(proc_data);
 
     let io_vecs = io_vecs.into_pa(page_table).unwrap().get_slice::<IOVec>(len);
@@ -187,15 +186,34 @@ pub fn lseek(fd: usize, offset: usize, whence: usize) -> SyscallResult {
         2 => SeekPosition::End,
         _ => { return Err(SyscallError::ESPIPE); }
     };
-    if let Some(Some(file)) = &proc_data.files.get(fd) {
-        let pos = file.seek(offset as isize, whence);
-        if let Ok(pos) = pos {
-            Ok(pos)
-        } else {
-            Err(SyscallError::ESPIPE)
-        }
+    let file = get_file_from_fd(&proc_data, fd)?;
+    if let Ok(pos) = file.seek(offset as isize, whence) {
+        Ok(pos)
     } else {
-        Err(SyscallError::EBADF)
+        Err(SyscallError::ESPIPE)
+    }
+}
+
+pub fn linkat(old_dirfd: usize, old_path: VirtAddr, new_dirfd: usize, new_path: VirtAddr, flags: usize) -> SyscallResult {
+    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc_data = proc.data.lock();
+    let old_dir_dentry = get_dentry_from_fd(&proc_data, old_dirfd)?;
+    let new_dir_dentry = get_dentry_from_fd(&proc_data, new_dirfd)?;
+    let old_file = DirEntry::from_path(
+        old_path.into_pa(proc_data.memory.get_pagetable()).unwrap().get_cstr(),
+        Some(old_dir_dentry)
+    ).ok_or(SyscallError::ENOENT)?;
+    let (new_parent, new_filename) = DirEntry::get_parent(
+        new_path.into_pa(proc_data.memory.get_pagetable()).unwrap().get_cstr(),
+        Some(new_dir_dentry)
+    ).ok_or(SyscallError::ENOENT)?;
+
+    if let Some(inode) = old_file.get_inode() {
+        let _ = new_parent.link(inode, new_filename).map_err(|_| SyscallError::EPERM)?;
+        Ok(0)
+    } else {
+        // Cannot link vfs entry
+        Err(SyscallError::EPERM)
     }
 }
 
@@ -205,15 +223,9 @@ pub fn mkdirat(dir_fd: usize, path_buf: VirtAddr, mode: usize) -> SyscallResult 
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let mut proc_data = proc.data.lock();
     let path = path_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_cstr();
-    let dentry =
-        if -100isize as usize == dir_fd {
-            proc_data.cwd.clone()
-        } else if let Some(Some(dir_file)) = &proc_data.files.get(dir_fd) {
-            dir_file.get_dentry()
-        } else {
-            return Err(SyscallError::EBADF);
-        };
-    if let Ok(_) = dentry.mkdir(path) {
+    let dentry = get_dentry_from_fd(&proc_data, dir_fd)?;
+    let (parent, dir_name) = DirEntry::get_parent(path, Some(dentry)).ok_or(SyscallError::ENOENT)?;
+    if let Ok(_) = parent.mkdir(dir_name) {
         Ok(0)
     } else {
         return Err(SyscallError::EIO);
@@ -246,15 +258,7 @@ pub fn fstat(fd: usize, kstat_buf: VirtAddr) -> SyscallResult {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let mut proc_data = proc.data.lock();
 
-    let dentry =
-        if -100isize as usize == fd {
-            proc_data.cwd.clone()
-        } else if let Some(Some(dir_file)) = &proc_data.files.get(fd) {
-            dir_file.get_dentry()
-        } else {
-            return Err(SyscallError::EBADF);
-        };
-
+    let dentry = get_dentry_from_fd(&proc_data, fd)?;
     let inode = dentry.get_inode();
     let stat = inode.map(|inode| inode.get_stat()).unwrap_or(InodeStat::vfs_inode_stat());
 
@@ -286,15 +290,7 @@ pub fn newfstatat(dir_fd: usize, path: VirtAddr, kstat_buf: VirtAddr) -> Syscall
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let mut proc_data = proc.data.lock();
 
-    let dentry =
-        if -100isize as usize == dir_fd {
-            proc_data.cwd.clone()
-        } else if let Some(Some(dir_file)) = &proc_data.files.get(dir_fd) {
-            dir_file.get_dentry()
-        } else {
-            return Err(SyscallError::EBADF);
-        };
-
+    let dentry = get_dentry_from_fd(&proc_data, dir_fd)?;
     let path = path.into_pa(proc_data.memory.get_pagetable()).unwrap().get_cstr();
     let dentry = if let Some(v) = DirEntry::from_path(path, Some(dentry)) {
         v
@@ -336,17 +332,12 @@ pub fn getdents64(fd: usize, buf: VirtAddr, len: usize) -> SyscallResult {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let mut proc_data = proc.data.lock();
 
-    let file =
-        if let Some(Some(dir_file)) = &proc_data.files.get(fd) {
-            dir_file
-        } else {
-            return Err(SyscallError::EBADF);
-        };
-
+    let file  = get_file_from_fd(&proc_data, fd)?;
     let dentry = file.get_dentry();
     let mut i = file.seek(0, SeekPosition::Cur).unwrap(); // get current offset
     let mut total_read = 0;
     let mut cur = buf;
+    let pg_table = proc_data.memory.get_pagetable();
     loop {
         if let Ok(dentry) = dentry.get_child(i) {
             if let Some(dentry) = dentry {
@@ -355,9 +346,11 @@ pub fn getdents64(fd: usize, buf: VirtAddr, len: usize) -> SyscallResult {
                     break;
                 }
                 // TODO: unwrap is not safe.
-                let pa = cur.clone().into_pa(proc_data.memory.get_pagetable()).unwrap();
+                let pa = cur.clone().into_pa(pg_table).unwrap();
                 if PhyPageId::from(pa.to_offset(dirent64.len() as isize)) != PhyPageId::from(pa) {
-                    todo!("Cross page access.");
+                    cur.access_continuously(pg_table, dirent64.len(), |pa| {
+                        pa.get_u8_mut(dirent64.len()).copy_from_slice(dirent64.as_slice());
+                    });
                 } else {
                     pa.get_u8_mut(dirent64.len()).copy_from_slice(dirent64.as_slice());
                 }

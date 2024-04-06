@@ -1,4 +1,4 @@
-use log::{trace, warn};
+use log::{debug, trace, warn};
 use crate::syscall::error::{SyscallError, SyscallResult};
 use super::Syscall;
 
@@ -13,6 +13,6 @@ pub fn ret_eperm(syscall: Syscall) -> SyscallResult {
 }
 
 pub fn unimp(syscall: Syscall) -> SyscallResult {
-    trace!("Unimplemented syscall {:?} called.", syscall);
+    debug!("Unimplemented syscall {:?} called.", syscall);
     Err(SyscallError::EPERM)
 }

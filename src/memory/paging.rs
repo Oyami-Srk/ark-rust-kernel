@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::mem::size_of;
 use bitflags::{bitflags, Flags};
 use lazy_static::lazy_static;
-use log::info;
+use log::{debug, info, trace};
 use riscv::asm::sfence_vma_all;
 use riscv::register::{satp, sstatus};
 use crate::core::Spinlock;
@@ -147,10 +147,10 @@ impl PageTable {
         }
     }
 
-    pub fn unmap_many(&mut self, va:VirtAddr, size: usize) {
+    pub fn unmap_many(&mut self, va:VirtAddr, pages: usize) {
         // va must continuous
-        for pg in 0..size / PAGE_SIZE {
-            self.unmap(va);
+        for pg in 0..pages {
+            self.unmap(VirtAddr::from(VirtPageId::from(va) + pg));
         }
     }
 
@@ -177,9 +177,9 @@ lazy_static! {
 }
 
 pub fn init() {
-    info!("In position mapping kernel.");
+    trace!("In position mapping kernel.");
     let mut kernel_pt = KERNEL_PAGE_TABLE.lock();
-    info!("Kernel page table entry: {}", PhyAddr::from(kernel_pt.entries.id));
+    debug!("Kernel page table entry: {}", PhyAddr::from(kernel_pt.entries.id));
     kernel_pt.map_big(
         VirtAddr::from(0x80000000), PhyAddr::from(0x80000000),
         PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::G,
@@ -187,7 +187,7 @@ pub fn init() {
     let v = kernel_pt.to_satp();
     satp::write(v);
     sfence_vma_all();
-    info!("Paging init complete.");
+    info!("Paging initialization complete.");
 }
 
 pub fn get_kernel_page_table() -> &'static Spinlock<PageTable> {
