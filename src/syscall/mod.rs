@@ -33,16 +33,6 @@ macro_rules! do_syscall {
     ($func:path, $args:ident, 6) => { $func($args[0].into(), $args[1].into(), $args[2].into(), $args[3].into(), $args[4].into(), $args[5].into()) };
 }
 
-macro_rules! unimp_syscall {
-    ($syscall:ident) => {
-        {
-            // todo!("{:?} is not implemented yet", syscall)
-            error!("Unimplemented syscall {:?} called.", $syscall);
-            Ok(0)
-        }
-    }
-}
-
 pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
     trace!("[Syscall] {:?}, args = [{:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}]",
                             syscall, args[0], args[1], args[2], args[3], args[4], args[5]);
@@ -75,9 +65,15 @@ pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
         /* ARK Custom Syscall */
         Syscall::ark_sleep_ticks => do_syscall!(custom::sleep_ticks, args, 1),
         Syscall::ark_breakpoint => do_syscall!(custom::breakpoint, args, 3),
+        /* Misc */
+        Syscall::uname => do_syscall!(utils::uname, args, 1),
+        Syscall::getcwd => do_syscall!(utils::getcwd, args, 2),
+        Syscall::chdir => do_syscall!(utils::chdir, args, 1),
         /* Dummy stub */
         Syscall::getuid => dummy::ret_zero(syscall),
+        Syscall::geteuid => dummy::ret_zero(syscall),
         Syscall::getgid => dummy::ret_zero(syscall),
+        Syscall::getegid => dummy::ret_zero(syscall),
         Syscall::setuid => dummy::ret_zero(syscall),
         Syscall::setgid => dummy::ret_zero(syscall),
         Syscall::exit_group => dummy::ret_eperm(syscall),
@@ -86,20 +82,19 @@ pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
         Syscall::fcntl64 => dummy::ret_eperm(syscall),
         Syscall::clock_gettime => dummy::ret_eperm(syscall),
         /* Going to be Implemented */
-        Syscall::getcwd => unimp_syscall!(syscall),
-        Syscall::dup => unimp_syscall!(syscall),
-        Syscall::pipe2 => unimp_syscall!(syscall),
-        Syscall::uname => unimp_syscall!(syscall),
-        Syscall::rt_sigprocmask => unimp_syscall!(syscall),
+        Syscall::dup => dummy::unimp(syscall),
+        Syscall::pipe2 => dummy::unimp(syscall),
+        Syscall::rt_sigaction => dummy::unimp(syscall),
+        Syscall::rt_sigprocmask => dummy::unimp(syscall),
         /* Not too urgent to be Implemented */
-        Syscall::dup3 => unimp_syscall!(syscall),
-        Syscall::chdir => unimp_syscall!(syscall),
-        Syscall::linkat => unimp_syscall!(syscall),
-        Syscall::unlinkat => unimp_syscall!(syscall),
-        Syscall::umount2 => unimp_syscall!(syscall),
-        Syscall::times => unimp_syscall!(syscall),
-        Syscall::gettimeofday => unimp_syscall!(syscall),
-        Syscall::nanosleep => unimp_syscall!(syscall),
+        Syscall::dup3 => dummy::unimp(syscall),
+        Syscall::linkat => dummy::unimp(syscall),
+        Syscall::unlinkat => dummy::unimp(syscall),
+        Syscall::umount2 => dummy::unimp(syscall),
+        Syscall::times => dummy::unimp(syscall),
+        Syscall::gettimeofday => dummy::unimp(syscall),
+        Syscall::nanosleep => dummy::unimp(syscall),
+        Syscall::ppoll => dummy::unimp(syscall)
     };
 
     match ret {

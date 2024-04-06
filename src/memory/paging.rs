@@ -160,8 +160,12 @@ impl PageTable {
 
     pub fn translate(&self, va: VirtAddr) -> Option<PhyAddr> {
         if let Some(pte) = self.find_pte(VirtPageId::from(va)) {
-            let offset = va.addr - va.round_down().addr;
-            Some(PhyAddr::from(PhyPageId::from(pte.page_id())).to_offset(offset as isize))
+            if pte.valid() {
+                let offset = va.addr - va.round_down().addr;
+                Some(PhyAddr::from(PhyPageId::from(pte.page_id())).to_offset(offset as isize))
+            } else {
+                None
+            }
         } else {
             None
         }

@@ -313,6 +313,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "talc"
+version = "4.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5244db9f91c0b033fa05c16e349ccdb0a3225198a5a71dbeacd36696e08d940b"
+dependencies = [
+ "lock_api",
+]
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -321,6 +330,11 @@ checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 [[package]]
 name = "user"
 version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "spin 0.9.8",
+ "talc",
+]
 
 [[package]]
 name = "virtio-drivers"

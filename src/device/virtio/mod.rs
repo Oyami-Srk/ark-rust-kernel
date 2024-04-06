@@ -45,7 +45,7 @@ unsafe impl Hal for VirtioHal {
         if vaddr.addr < HARDWARE_BASE_ADDR {
             vaddr.addr
         } else {
-            vaddr.into_pa(&crate::memory::get_kernel_page_table().lock()).addr
+            vaddr.into_pa(&crate::memory::get_kernel_page_table().lock()).unwrap().addr
         }
     }
 

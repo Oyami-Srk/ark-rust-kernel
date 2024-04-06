@@ -210,13 +210,14 @@ impl Process {
         // clear old user space
         self.data.lock().memory.reset();
         // load new
+        // TODO: move out stack allocation
         let mut aux_table = self.load_elf(binary_slice);
         // setup argv and env
         let mut proc_data = self.data.lock();
         let context = proc_data.get_trap_context();
         let virt_sp = context.reg[TrapContext::sp];
         let stack_bottom = VirtAddr::from(virt_sp - PAGE_SIZE)
-            .into_pa(proc_data.memory.get_pagetable()).to_offset(PAGE_SIZE as isize);
+            .into_pa(proc_data.memory.get_pagetable()).unwrap().to_offset(PAGE_SIZE as isize);
         let mut sp = stack_bottom.clone(); // sp always point a 'valid' data if any valid data available.
 
         /* Push strings */

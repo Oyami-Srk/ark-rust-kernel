@@ -6,6 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::mem::size_of;
 use bitflags::Flags;
+use crate::config::{SYS_MACHINE, SYS_NAME};
 use crate::filesystem::{DirEntry, FileModes, InodeStat};
 use crate::memory::{Addr, VirtAddr};
 
@@ -92,5 +93,44 @@ impl DirEnt64 {
             bytes.push(0);
         }
         bytes
+    }
+}
+
+const UNAME_SYS_NMLN: usize = 65;
+
+pub struct UtsName {
+    sysname: [u8; UNAME_SYS_NMLN],
+    nodename: [u8; UNAME_SYS_NMLN],
+    release: [u8; UNAME_SYS_NMLN],
+    version: [u8; UNAME_SYS_NMLN],
+    machine: [u8; UNAME_SYS_NMLN],
+    domainname: [u8; UNAME_SYS_NMLN],
+}
+
+impl UtsName {
+    pub fn new() -> Self {
+        Self {
+            sysname: Self::bytes_from_str(SYS_NAME),
+            nodename: Self::bytes_from_str(""),
+            release: Self::bytes_from_str(env!("CARGO_PKG_VERSION")),
+            version: Self::bytes_from_str(""),
+            machine: Self::bytes_from_str(SYS_MACHINE),
+            domainname: Self::bytes_from_str(""),
+        }
+    }
+
+    fn bytes_from_str(s: &str) -> [u8; 65] {
+        let mut tmp = [0u8; 65];
+        tmp[..s.len()].copy_from_slice(s.as_bytes());
+        tmp
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        unsafe {
+            core::slice::from_raw_parts(
+                self as *const _ as usize as *const u8,
+                size_of::<Self>(),
+            )
+        }
     }
 }

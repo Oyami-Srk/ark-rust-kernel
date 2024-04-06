@@ -279,15 +279,8 @@ impl PageId for PhyPageId {
 impl PhyPageId {}
 
 impl VirtAddr {
-    pub fn into_pa(self, page_table: &PageTable) -> PhyAddr {
-        page_table.translate(self).unwrap()
-    }
-
-    pub fn into_pa_current_process(self) -> Option<PhyAddr> {
-        let proc = CPU::get_current().unwrap().get_process()?;
-        let proc_data = proc.data.lock();
-        let page_table = &proc_data.memory.get_pagetable();
-        Some(self.into_pa(page_table))
+    pub fn into_pa(self, page_table: &PageTable) -> Option<PhyAddr> {
+        page_table.translate(self)
     }
 }
 

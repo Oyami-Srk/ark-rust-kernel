@@ -23,15 +23,16 @@ pub fn clone(flags: usize, child_stack: usize) -> SyscallResult {
 pub fn execve(path: VirtAddr, argv: VirtAddr, envp: VirtAddr) -> SyscallResult {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let mut proc_data = proc.data.lock();
-    let path = path.into_pa(&proc_data.memory.get_pagetable()).get_cstr();
+    let path = path.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_cstr();
     let page_table = &proc_data.memory.get_pagetable();
     fn get_str_vec(vaddr: VirtAddr, page_table: &PageTable) -> Vec<String> {
         let mut v: Vec<String> = Vec::new();
         if !vaddr.is_null() {
-            let mut pa = vaddr.into_pa(page_table);
+            let mut pa = vaddr.into_pa(page_table).unwrap();
             loop {
-                let str_ptr = VirtAddr::from(*pa.get_ref::<usize>()).into_pa(page_table);
+                let str_ptr = VirtAddr::from(*pa.get_ref::<usize>());
                 if str_ptr.is_null() { break; }
+                let str_ptr = str_ptr.into_pa(page_table).unwrap();
                 v.push(str_ptr.get_cstr().to_string());
                 pa = pa.to_offset(size_of::<*const u8>() as isize);
             }
@@ -69,7 +70,8 @@ pub fn exit(code: usize) -> SyscallResult {
 pub fn wait_for(pid: usize, exit_code_buf: VirtAddr, option: usize) -> SyscallResult {
     let pid: isize = pid as isize;
     let proc = CPU::get_current().unwrap().get_process().unwrap();
-    let exit_code = exit_code_buf.into_pa(proc.data.lock().memory.get_pagetable()).get_ref_mut::<usize>();
+    // TODO: unwrap is not safe
+    let exit_code = exit_code_buf.into_pa(proc.data.lock().memory.get_pagetable()).unwrap().get_ref_mut::<usize>();
     Ok(ProcessManager::wait_for(get_process_manager(), proc, pid, exit_code, option) as usize)
 }
 

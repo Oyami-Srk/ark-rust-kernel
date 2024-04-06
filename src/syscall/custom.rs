@@ -20,7 +20,7 @@ pub fn breakpoint(id: usize, data: VirtAddr, optional_length: usize) -> SyscallR
     let proc_data = proc.data.lock();
     if id == 0 {
         // data is c string
-        let cstr = data.into_pa(proc_data.memory.get_pagetable()).get_cstr();
+        let cstr = data.into_pa(proc_data.memory.get_pagetable()).unwrap().get_cstr();
         warn!("Breakpoint with string: {}", cstr);
     }
 

@@ -71,7 +71,7 @@ pub fn mmap(addr: VirtAddr, len: usize, prot: usize, flags: usize, fd: usize, of
                 for pg in vpn.id..vpn.id + pages_count {
                     let this_vpn = VirtPageId::from(pg);
                     file.read(
-                        VirtAddr::from(this_vpn).into_pa(proc_data.memory.get_pagetable())
+                        VirtAddr::from(this_vpn).into_pa(proc_data.memory.get_pagetable()).unwrap()
                             .get_slice_mut::<u8>(PAGE_SIZE)
                     ).expect("Read failed");
                 }

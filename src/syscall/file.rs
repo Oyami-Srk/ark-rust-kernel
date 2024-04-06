@@ -16,7 +16,7 @@ use crate::syscall::error::{SyscallError, SyscallResult};
 pub fn open(parent_fd: usize, filename_buf: VirtAddr, flags: FileOpenFlags, mode: FileModes) -> SyscallResult {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let mut proc_data = proc.data.lock();
-    let filename = filename_buf.into_pa(&proc_data.memory.get_pagetable()).get_cstr();
+    let filename = filename_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_cstr();
     let cwd = if parent_fd == AT_FDCWD {
         (&proc_data.cwd).clone()
     } else {
@@ -83,7 +83,8 @@ pub fn read(fd: usize, user_buf: VirtAddr, len: usize) -> SyscallResult {
         let data_slice = data.as_slice();
         let proc_data = proc.data.lock();
         // TODO: read more than a page will cause problem...
-        let phy_buf = user_buf.into_pa(&proc_data.memory.get_pagetable()).get_u8_mut(read_size);
+        // TODO: unwrap is not safe
+        let phy_buf = user_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_u8_mut(read_size);
         phy_buf.copy_from_slice(&data_slice[..read_size]);
         Ok(read_size)
     } else {
@@ -100,7 +101,7 @@ pub fn write(fd: usize, user_buf: VirtAddr, len: usize) -> SyscallResult {
     } else {
         return Err(SyscallError::EBADF);
     };
-    let phy_buf = user_buf.into_pa(&proc_data.memory.get_pagetable()).get_u8(len);
+    let phy_buf = user_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_u8(len);
     drop(proc_data);
 
     if let Ok(write_size) = file.write(phy_buf) {
@@ -130,13 +131,14 @@ pub fn readv(fd: usize, io_vecs: VirtAddr, len: usize) -> SyscallResult {
     };
     drop(proc_data);
 
-    let io_vecs = io_vecs.into_pa(page_table).get_slice::<IOVec>(len);
+    let io_vecs = io_vecs.into_pa(page_table).unwrap().get_slice::<IOVec>(len);
     let mut size = 0;
     for io_vec in io_vecs {
         if io_vec.iov_base == 0 || io_vec.iov_len == 0 {
             continue;
         }
-        let buf = VirtAddr::from(io_vec.iov_base as usize).into_pa(page_table).get_u8_mut(io_vec.iov_len as usize);
+        // TODO: unwrap is not safe
+        let buf = VirtAddr::from(io_vec.iov_base as usize).into_pa(page_table).unwrap().get_u8_mut(io_vec.iov_len as usize);
         size += if let Ok(v) = file.read(buf) {
             v
         } else {
@@ -160,13 +162,13 @@ pub fn writev(fd: usize, io_vecs: VirtAddr, len: usize) -> SyscallResult {
     };
     drop(proc_data);
 
-    let io_vecs = io_vecs.into_pa(page_table).get_slice::<IOVec>(len);
+    let io_vecs = io_vecs.into_pa(page_table).unwrap().get_slice::<IOVec>(len);
     let mut size = 0;
     for io_vec in io_vecs {
         if io_vec.iov_base == 0 || io_vec.iov_len == 0 {
             continue;
         }
-        let buf = VirtAddr::from(io_vec.iov_base as usize).into_pa(page_table).get_u8(io_vec.iov_len as usize);
+        let buf = VirtAddr::from(io_vec.iov_base as usize).into_pa(page_table).unwrap().get_u8(io_vec.iov_len as usize);
         size += if let Ok(v) = file.write(buf) {
             v
         } else {
@@ -202,7 +204,7 @@ pub fn lseek(fd: usize, offset: usize, whence: usize) -> SyscallResult {
 pub fn mkdirat(dir_fd: usize, path_buf: VirtAddr, mode: usize) -> SyscallResult {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let mut proc_data = proc.data.lock();
-    let path = path_buf.into_pa(&proc_data.memory.get_pagetable()).get_cstr();
+    let path = path_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_cstr();
     let dentry =
         if -100isize as usize == dir_fd {
             proc_data.cwd.clone()
@@ -223,9 +225,9 @@ pub fn mkdirat(dir_fd: usize, path_buf: VirtAddr, mode: usize) -> SyscallResult 
 pub fn mount(dev_buf: VirtAddr, mount_point_buf: VirtAddr, filesystem_buf: VirtAddr, flags: usize, data_ptr: VirtAddr) -> SyscallResult {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let mut proc_data = proc.data.lock();
-    let dev = dev_buf.into_pa(&proc_data.memory.get_pagetable()).get_cstr();
-    let mount_point = mount_point_buf.into_pa(&proc_data.memory.get_pagetable()).get_cstr();
-    let filesystem = filesystem_buf.into_pa(&proc_data.memory.get_pagetable()).get_cstr();
+    let dev = dev_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_cstr();
+    let mount_point = mount_point_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_cstr();
+    let filesystem = filesystem_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_cstr();
 
     // flags and data is not yet impl.
     let cwd = proc_data.cwd.clone();
@@ -256,7 +258,8 @@ pub fn fstat(fd: usize, kstat_buf: VirtAddr) -> SyscallResult {
     let inode = dentry.get_inode();
     let stat = inode.map(|inode| inode.get_stat()).unwrap_or(InodeStat::vfs_inode_stat());
 
-    let kstat = kstat_buf.into_pa(proc_data.memory.get_pagetable()).get_ref_mut::<KernelStat>();
+    // TODO: unwrap is not safe.
+    let kstat = kstat_buf.into_pa(proc_data.memory.get_pagetable()).unwrap().get_ref_mut::<KernelStat>();
     *kstat = KernelStat {
         st_dev: 0,
         st_ino: stat.ino as u64,
@@ -292,9 +295,7 @@ pub fn newfstatat(dir_fd: usize, path: VirtAddr, kstat_buf: VirtAddr) -> Syscall
             return Err(SyscallError::EBADF);
         };
 
-
-    let path_pa = path.into_pa(proc_data.memory.get_pagetable());
-    let path = path_pa.get_cstr();
+    let path = path.into_pa(proc_data.memory.get_pagetable()).unwrap().get_cstr();
     let dentry = if let Some(v) = DirEntry::from_path(path, Some(dentry)) {
         v
     } else {
@@ -303,7 +304,8 @@ pub fn newfstatat(dir_fd: usize, path: VirtAddr, kstat_buf: VirtAddr) -> Syscall
     let inode = dentry.get_inode();
     let stat = inode.map(|inode| inode.get_stat()).unwrap_or(InodeStat::vfs_inode_stat());
 
-    let kstat = kstat_buf.into_pa(proc_data.memory.get_pagetable()).get_ref_mut::<KernelStat>();
+    // TODO: unwrap is not safe.
+    let kstat = kstat_buf.into_pa(proc_data.memory.get_pagetable()).unwrap().get_ref_mut::<KernelStat>();
     *kstat = KernelStat {
         st_dev: 0,
         st_ino: stat.ino as u64,
@@ -352,7 +354,8 @@ pub fn getdents64(fd: usize, buf: VirtAddr, len: usize) -> SyscallResult {
                 if total_read + dirent64.len() > len {
                     break;
                 }
-                let pa = cur.clone().into_pa(proc_data.memory.get_pagetable());
+                // TODO: unwrap is not safe.
+                let pa = cur.clone().into_pa(proc_data.memory.get_pagetable()).unwrap();
                 if PhyPageId::from(pa.to_offset(dirent64.len() as isize)) != PhyPageId::from(pa) {
                     todo!("Cross page access.");
                 } else {

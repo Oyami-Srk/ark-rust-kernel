@@ -243,4 +243,31 @@ impl ProcessMemory {
 
         self.page_table = page_table;
     }
+
+    pub fn alloc_stack_if_possible(&mut self, vaddr: VirtAddr) -> bool {
+        // if is stack overflow, then try to allocate new stack
+        // if user-prog requires too large stack size and new access is beyond next un-allocated page
+        // we do not consider it as a stack overflow
+        let addr_page = VirtPageId::from(vaddr);
+        if addr_page == VirtPageId::from(self.stack_top.to_offset(-1))
+            && !self.is_mapped(&addr_page) {
+            // is new unallocated stack
+            self.increase_user_stack();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn translate_with_stack_alloc(&mut self, vaddr: VirtAddr) -> Option<PhyAddr> {
+        if let Some(paddr) = vaddr.into_pa(&self.page_table) {
+            return Some(paddr);
+        }
+
+        if self.alloc_stack_if_possible(vaddr) {
+            Some(vaddr.into_pa(&self.page_table).unwrap())
+        } else {
+            None
+        }
+    }
 }

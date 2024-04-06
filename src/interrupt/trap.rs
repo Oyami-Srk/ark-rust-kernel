@@ -95,18 +95,11 @@ fn exception_handler(trap_context: &TrapContext, exp: scause::Exception, sstatus
         }
         Exception::StorePageFault | Exception::LoadPageFault => {
             // handle page fault
-            let addr = VirtAddr::from(stval);
             let proc = CPU::get_current().unwrap().get_process().unwrap();
             let mut proc_data = proc.data.lock();
-            // if is stack overflow, then try to allocate new stack
-            // if user-prog requires too large stack size and new access is beyond next un-allocated page
-            // we do not consider it as a stack overflow
-            let addr_page = VirtPageId::from(addr);
-            if addr_page == VirtPageId::from(proc_data.memory.stack_top.to_offset(-1))
-                && !proc_data.memory.is_mapped(&addr_page) {
-                // is new unallocated stack
-                proc_data.memory.increase_user_stack();
-                return Some(0) // retry the access
+
+            if proc_data.memory.alloc_stack_if_possible(stval.into()) {
+                return Some(0); // alloc successful
             }
 
             error!("Unhandled Page-Fault happened: {:?} from {}: sepc: {:#x}, stval: {:#x}", exp,
