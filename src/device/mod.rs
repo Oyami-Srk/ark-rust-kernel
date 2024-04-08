@@ -9,6 +9,7 @@
 pub mod console;
 pub mod timer;
 pub mod virtio;
+pub mod pipe;
 
 pub use console::{Console, Write as ConsoleWrite};
 use crate::do_init;

@@ -63,6 +63,15 @@ impl ProcessData {
     pub fn get_trap_context(&mut self) -> &'static mut TrapContext {
         PhyAddr::from(self.kernel_stack[0].id).get_ref_mut::<TrapContext>()
     }
+
+    pub fn allocate_fd(&mut self) -> usize {
+        if let Some(fd) = (0..self.files.len()).find(|fd| self.files[*fd].is_none()) {
+            fd
+        } else {
+            self.files.push(None);
+            self.files.len() - 1
+        }
+    }
 }
 
 impl Process {
@@ -399,6 +408,18 @@ impl ProcessManager {
         child_data.cwd = parent_data.cwd.clone();
         child_data.get_trap_context().copy_from(parent_data.get_trap_context());
         child_data.get_trap_context().reg[TrapContext::a0] = 0; // child fork's ret
+        parent_data.files.iter().enumerate()
+            .filter(|(fd, file)| { *fd >= 3 && file.is_some() })
+            .for_each(|(fd, file)| {
+                while child_data.files.get(fd).is_none() {
+                    child_data.files.push(None)
+                }
+                child_data.files[fd] = if let Some(file) = file {
+                    Some(file.clone())
+                } else {
+                    panic!("not possible.")
+                }
+            });
 
         drop(child_data);
         drop(parent_data);
@@ -426,6 +447,13 @@ impl ProcessManager {
             let mut init_proc_data = init_proc.data.lock();
             while let Some(child) = proc_data.children.pop() {
                 init_proc_data.children.push(child);
+            }
+        }
+
+        // Close files
+        while let Some(file) = proc_data.files.pop() {
+            if let Some(file) = file {
+                let _ = file.close();
             }
         }
 
@@ -467,7 +495,7 @@ impl ProcessManager {
             } else {
                 // no child found, hang
                 drop(proc_data);
-                if pid > 0{
+                if pid > 0 {
                     let pm_guard = pm.lock();
                     let waited_child = pm_guard.process_list.get(&(pid as usize));
                     if let Some(waited_child) = waited_child {

@@ -13,6 +13,8 @@
 #define SYS_writev 66
 #define SYS_newfstatat 79
 #define SYS_getdents64 61
+#define SYS_linkat 37
+#define SYS_pipe2 59
 
 /* Process */
 #define SYS_exit 93
@@ -53,13 +55,11 @@
 
 /* Going to be Implemented */
 #define SYS_dup 23
-#define SYS_pipe2 59
 #define SYS_rt_sigaction 134
 #define SYS_rt_sigprocmask 135
 
 /* Not too urgent to be Implemented */
 #define SYS_dup3 24
-#define SYS_linkat 37
 #define SYS_unlinkat 35
 #define SYS_umount2 39
 #define SYS_times 153

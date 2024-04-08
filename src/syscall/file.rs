@@ -4,6 +4,7 @@ use core::fmt::Write;
 use core::ops::DerefMut;
 use log::info;
 use crate::cpu::CPU;
+use crate::device::pipe::PipeFile;
 use crate::memory::{VirtAddr, Addr, PageTable, PhyPageId};
 use crate::filesystem as fs;
 use crate::filesystem::{DirEntry, File, FileModes, FileOpenFlags, InodeStat, SeekPosition};
@@ -49,12 +50,7 @@ pub fn open(parent_fd: usize, filename_buf: VirtAddr, flags: FileOpenFlags, mode
             let file = dentry.open(flags, mode);
             if let Ok(file) = file {
                 // find fd
-                let fd = if let Some(fd) = (0..proc_data.files.len()).find(|fd| proc_data.files[*fd].is_none()) {
-                    fd
-                } else {
-                    proc_data.files.push(None);
-                    proc_data.files.len() - 1
-                };
+                let fd = proc_data.allocate_fd();
                 proc_data.files[fd] = Some(file);
                 Ok(fd)
             } else {
@@ -71,6 +67,10 @@ pub fn close(fd: usize) -> SyscallResult {
     let mut proc_data = proc.data.lock();
 
     if let Some(Some(file)) = &proc_data.files.get(fd) {
+        if Arc::strong_count(file) > 2 {
+            // File is dupped.
+            return Ok(0);
+        }
         if let Ok(_) = file.close() {
             proc_data.files[fd] = None;
             Ok(0)
@@ -201,11 +201,11 @@ pub fn linkat(old_dirfd: usize, old_path: VirtAddr, new_dirfd: usize, new_path: 
     let new_dir_dentry = get_dentry_from_fd(&proc_data, new_dirfd)?;
     let old_file = DirEntry::from_path(
         old_path.into_pa(proc_data.memory.get_pagetable()).unwrap().get_cstr(),
-        Some(old_dir_dentry)
+        Some(old_dir_dentry),
     ).ok_or(SyscallError::ENOENT)?;
     let (new_parent, new_filename) = DirEntry::get_parent(
         new_path.into_pa(proc_data.memory.get_pagetable()).unwrap().get_cstr(),
-        Some(new_dir_dentry)
+        Some(new_dir_dentry),
     ).ok_or(SyscallError::ENOENT)?;
 
     if let Some(inode) = old_file.get_inode() {
@@ -332,7 +332,7 @@ pub fn getdents64(fd: usize, buf: VirtAddr, len: usize) -> SyscallResult {
     let proc = CPU::get_current().unwrap().get_process().unwrap();
     let mut proc_data = proc.data.lock();
 
-    let file  = get_file_from_fd(&proc_data, fd)?;
+    let file = get_file_from_fd(&proc_data, fd)?;
     let dentry = file.get_dentry();
     let mut i = file.seek(0, SeekPosition::Cur).unwrap(); // get current offset
     let mut total_read = 0;
@@ -367,4 +367,45 @@ pub fn getdents64(fd: usize, buf: VirtAddr, len: usize) -> SyscallResult {
 
     file.seek(i as isize, SeekPosition::Set).unwrap();
     Ok(total_read)
+}
+
+/* For Pipe */
+pub fn pipe2(fds: VirtAddr, options: usize) -> SyscallResult {
+    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let mut proc_data = proc.data.lock();
+
+    let (file_read, file_write) = PipeFile::create();
+    let fd_read = proc_data.allocate_fd();
+    proc_data.files[fd_read] = Some(Arc::new(file_read));
+    let fd_write = proc_data.allocate_fd();
+    proc_data.files[fd_write] = Some(Arc::new(file_write));
+
+    let ufds = fds.into_pa(proc_data.memory.get_pagetable()).unwrap().get_slice_mut::<u32>(2);
+    ufds[0] = fd_read as u32;
+    ufds[1] = fd_write as u32;
+
+    Ok(0)
+}
+
+/* For dup */
+pub fn dup(old_fd: usize) -> SyscallResult {
+    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let mut proc_data = proc.data.lock();
+
+    let file = get_file_from_fd(&proc_data, old_fd)?;
+    let new_fd = proc_data.allocate_fd();
+    proc_data.files[new_fd] = Some(file);
+    Ok(new_fd)
+}
+
+pub fn dup3(old_fd: usize, new_fd: usize) -> SyscallResult {
+    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let mut proc_data = proc.data.lock();
+
+    let file = get_file_from_fd(&proc_data, old_fd)?;
+    if let Ok(old_file) = get_file_from_fd(&proc_data, new_fd) {
+        old_file.close().or_else(|_| Err(SyscallError::EIO))?
+    }
+    proc_data.files[new_fd] = Some(file);
+    Ok(new_fd)
 }

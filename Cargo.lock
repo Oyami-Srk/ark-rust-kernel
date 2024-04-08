@@ -332,6 +332,7 @@ name = "user"
 version = "0.1.0"
 dependencies = [
  "bitflags",
+ "c_defines_to_enum",
  "spin 0.9.8",
  "talc",
 ]

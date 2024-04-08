@@ -35,7 +35,7 @@ use crate::cpu::CPU;
 use crate::init;
 use crate::interrupt::{enable_trap, TrapContext};
 use crate::memory::{Addr, PAGE_SIZE, PhyAddr, PhyPage, PTEFlags, VirtAddr, VirtPageId};
-pub use task::{context_switch, do_yield};
+pub use task::{context_switch, do_yield, try_yield};
 use crate::filesystem::{File, SeekPosition};
 
 lazy_static! {

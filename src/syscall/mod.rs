@@ -53,6 +53,9 @@ pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
         Syscall::newfstatat => do_syscall!(file::newfstatat, args, 3),
         Syscall::getdents64 => do_syscall!(file::getdents64, args, 3),
         Syscall::linkat => do_syscall!(file::linkat, args, 5),
+        Syscall::pipe2 => do_syscall!(file::pipe2, args, 2),
+        Syscall::dup => do_syscall!(file::dup, args, 1),
+        Syscall::dup3 => do_syscall!(file::dup3, args, 2),
         /* Process */
         Syscall::exit => do_syscall!(process::exit, args, 1),
         Syscall::clone => do_syscall!(process::clone, args, 2),
@@ -86,12 +89,9 @@ pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
         Syscall::fcntl64 => dummy::ret_eperm(syscall),
         Syscall::clock_gettime => dummy::ret_eperm(syscall),
         /* Going to be Implemented */
-        Syscall::dup => dummy::unimp(syscall),
-        Syscall::pipe2 => dummy::unimp(syscall),
         Syscall::rt_sigaction => dummy::unimp(syscall),
         Syscall::rt_sigprocmask => dummy::unimp(syscall),
         /* Not too urgent to be Implemented */
-        Syscall::dup3 => dummy::unimp(syscall),
         Syscall::unlinkat => dummy::unimp(syscall),
         Syscall::umount2 => dummy::unimp(syscall),
         Syscall::times => dummy::unimp(syscall),

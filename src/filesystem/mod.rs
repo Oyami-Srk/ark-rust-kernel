@@ -338,6 +338,17 @@ pub fn mount(cwd: Option<Arc<DirEntry>>, dev: &str, mount_point: &str, filesyste
     Filesystem子系统负责管理DirEntry。其他部分交由具体的FS实现Inode和File部分。
  */
 impl DirEntry {
+    pub fn new(parent: Option<Weak<DirEntry>>, name: String, inode: Option<Arc<dyn Inode>>, type_: DirEntryType) -> Self {
+        Self {
+            parent,
+            name,
+            inode,
+            type_,
+            children: Spinlock::new(BTreeMap::new()),
+            children_fully_loaded: OnceCell::new(),
+        }
+    }
+
     pub fn root() -> Arc<DirEntry> {
         // Safety: ROOT_DENTRY is immutable after fs::init
         return unsafe { ROOT_DENTRY.as_ref().unwrap() }.clone();
@@ -541,6 +552,6 @@ impl DirEntry {
         for i in 0..i {
             iter.next();
         }
-        Ok(iter.next().map(|(k,v)| v.clone()))
+        Ok(iter.next().map(|(k, v)| v.clone()))
     }
 }
