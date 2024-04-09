@@ -10,7 +10,7 @@ use lazy_static::lazy_static;
 use alloc::vec::Vec;
 use core::arch::asm;
 use core::cell::RefCell;
-use core::ops::Deref;
+use core::ops::{Deref, DerefMut};
 use riscv::register::{mhartid, sstatus};
 use log::info;
 use crate::interrupt::{disable_trap, enable_trap};
@@ -21,20 +21,21 @@ use crate::core::{Spinlock, SpinlockGuard};
 use spin::RwLock;
 
 pub(super) struct CPU {
-    proc: Option<Arc<Process>>,
-    trap_off_depth: usize,
-    trap_enabled: bool,
-    cpu_context: TaskContext,
+    proc: Spinlock<Option<Arc<Process>>>,
+    // trap_off_depth: usize,
+    // trap_enabled: bool,
+    trap_info: Spinlock<(usize, bool)>,
+    cpu_context: Spinlock<TaskContext>,
 }
 
 lazy_static! {
-    static ref CPUS: Vec<Arc<RwLock<CPU>>> = (|| {
+    static ref CPUS: Vec<CPU> = (|| {
         let fdt = startup::get_boot_fdt();
         info!("Totally {} CPU(s) found.", fdt.cpus().count());
         // info!("CPU Freq: {}", fdt.cpus().find_map(|c| Some(c.clock_frequency())).unwrap());
         (0..fdt.cpus().count()).map(|_| {
-            Arc::new(RwLock::new(CPU::new()))
-        }).collect::<Vec<Arc<RwLock<CPU>>>>()
+            CPU::new()
+        }).collect::<Vec<CPU>>()
     })();
 }
 
@@ -46,10 +47,9 @@ pub fn init() {
 impl CPU {
     pub fn new() -> Self {
         Self {
-            proc: None,
-            trap_off_depth: 0,
-            trap_enabled: false,
-            cpu_context: TaskContext::new(),
+            proc: Spinlock::new(None),
+            trap_info: Spinlock::new((0, false)),
+            cpu_context: Spinlock::new(TaskContext::new()),
         }
     }
 
@@ -61,8 +61,8 @@ impl CPU {
         }
     }
 
-    pub fn get_current() -> Option<Arc<RwLock<CPU>>> {
-        CPUS.get(Self::get_current_id()).cloned()
+    pub fn get_current() -> Option<&'static CPU> {
+        CPUS.get(Self::get_current_id())
     }
 
     pub fn get_count() -> usize {
@@ -70,54 +70,65 @@ impl CPU {
     }
 
     pub fn get_process(&self) -> Option<Arc<Process>> {
-        self.proc.clone()
+        let proc_lock = self.proc.lock();
+        let proc = proc_lock.clone();
+        drop(proc_lock);
+        proc
     }
 
     pub fn get_current_process() -> Option<Arc<Process>> {
-        let cpu_rwlock = Self::get_current().unwrap();
-        let cpu = cpu_rwlock.read();
-        cpu.proc.clone()
+        Self::get_current().unwrap().get_process()
     }
 
-    pub fn push_interrupt(&mut self) {
+    pub fn push_interrupt(&self) {
         let old_sie = sstatus::read().sie();
         disable_trap();
-        if self.trap_off_depth == 0 {
-            self.trap_enabled = old_sie;
+        let mut trap_info = self.trap_info.lock();
+        let (mut depth, mut enabled) = *trap_info;
+        if depth == 0 {
+            enabled = old_sie;
         }
-        self.trap_off_depth += 1;
+        depth += 1;
+        *trap_info = (depth, enabled);
     }
 
-    pub fn pop_interrupt(&mut self) {
+    pub fn pop_interrupt(&self) {
         assert_eq!(sstatus::read().sie(), false, "Pop interrupt with no interrupt disabled.");
-        assert_ne!(self.trap_off_depth, 0, "Trap depth is 0");
-        self.trap_off_depth -= 1;
-        if self.trap_off_depth == 0 && self.trap_enabled {
+        let mut trap_info = self.trap_info.lock();
+        let (mut depth, mut enabled) = *trap_info;
+        assert_ne!(depth, 0, "Trap depth is 0");
+        depth -= 1;
+        *trap_info = (depth, enabled);
+        drop(trap_info);
+
+        if depth == 0 && enabled {
             enable_trap();
         }
     }
 
-    pub fn set_process(&mut self, proc: Option<Arc<Process>>) {
-        self.proc = proc;
+    pub fn set_process(&self, proc: Option<Arc<Process>>) {
+        *self.proc.lock() = proc
     }
 
-    pub fn unset_process(&mut self) {
-        self.proc = None;
-    }
-
-    pub fn get_context_mut(&mut self) -> *mut TaskContext {
-        &mut self.cpu_context as *mut _
+    pub fn get_context_mut(&self) -> *mut TaskContext {
+        let mut cpu_context = self.cpu_context.lock();
+        let ctx = cpu_context.deref_mut() as *mut _;
+        drop(cpu_context);
+        ctx
     }
 
     pub fn get_context(&self) -> *const TaskContext {
-        &self.cpu_context as *const _
+        let mut cpu_context = self.cpu_context.lock();
+        let ctx = cpu_context.deref() as *const _;
+        drop(cpu_context);
+        ctx
     }
-
     pub fn get_trap_enabled(&self) -> bool {
-        self.trap_enabled
+        self.trap_info.lock().1
     }
 
-    pub fn set_trap_enabled(&mut self, enabled: bool) {
-        self.trap_enabled = enabled;
+    pub fn set_trap_enabled(&self, enabled: bool) {
+        let (depth,_) = *self.trap_info.lock();
+        *self.trap_info.lock() = (depth, enabled);
     }
 }

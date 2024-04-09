@@ -23,7 +23,7 @@ pub fn handler() {
     set_next_trigger();
     TIMER_CONDVAR.wakeup();
     if CPU::get_current_process().is_some() {
-        process::do_yield();
+        process::try_yield();
     }
 }
 

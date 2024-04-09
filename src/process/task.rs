@@ -61,8 +61,7 @@ fn yield_process(mut proc_data: IntrlockGuard<ProcessData>) -> *mut TaskContext 
 }
 
 fn _do_yield(old_ctx: *mut TaskContext) {
-    let cpu_rwlock = CPU::get_current().unwrap();
-    let mut cpu = cpu_rwlock.write();
+    let cpu = CPU::get_current().unwrap();
     let trap_enabled = cpu.get_trap_enabled();
     let new_ctx = cpu.get_context();
     cpu.set_process(None);
@@ -71,7 +70,7 @@ fn _do_yield(old_ctx: *mut TaskContext) {
 
     unsafe { context_switch(old_ctx, new_ctx) };
 
-    CPU::get_current().unwrap().write().set_trap_enabled(trap_enabled);
+    CPU::get_current().unwrap().set_trap_enabled(trap_enabled);
 }
 
 pub fn do_yield() {

@@ -27,7 +27,7 @@ impl<T> InterruptSafeCell<T> {
     }
 
     pub fn get(&self) -> InterruptSafeRefMut<'_, T> {
-        CPU::get_current().unwrap().write().push_interrupt();
+        CPU::get_current().unwrap().push_interrupt();
         InterruptSafeRefMut{ data: self.data.borrow_mut() }
     }
 }
@@ -36,7 +36,7 @@ unsafe impl<T> Sync for InterruptSafeCell<T> {}
 
 impl<'a, T> Drop for InterruptSafeRefMut<'a, T> {
     fn drop(&mut self) {
-        CPU::get_current().unwrap().write().push_interrupt();
+        CPU::get_current().unwrap().pop_interrupt();
     }
 }
 

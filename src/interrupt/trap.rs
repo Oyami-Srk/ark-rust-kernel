@@ -220,7 +220,7 @@ fn kernel_trap_handler(trap_context: &mut TrapContext) {
     if sstatus.sie() {
         unsafe { sstatus::clear_sie(); }
     }
-    assert_eq!(sstatus.spp(), SPP::Supervisor, "Kernel trap not from kernel!");
+    // assert_eq!(sstatus.spp(), SPP::Supervisor, "Kernel trap not from kernel!");
 
     match scause.cause() {
         Trap::Interrupt(int) => {
@@ -234,5 +234,5 @@ fn kernel_trap_handler(trap_context: &mut TrapContext) {
         }
     }
 
-    assert_ne!(trap_context.sstatus & 1 << 8, 0, "Kernel trap leave without spp=1!");
+    // assert_ne!(trap_context.sstatus & 1 << 8, 0, "Kernel trap leave without spp=1!");
 }
