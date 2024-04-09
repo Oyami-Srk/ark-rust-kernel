@@ -22,7 +22,7 @@ pub fn init() {
 pub fn handler() {
     set_next_trigger();
     TIMER_CONDVAR.wakeup();
-    if CPU::get_current().unwrap().get_process().is_some() {
+    if CPU::get_current_process().is_some() {
         process::do_yield();
     }
 }

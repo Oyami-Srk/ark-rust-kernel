@@ -59,16 +59,19 @@ pub fn worker() -> ! {
         let proc = PROCESS_MANAGER.lock().scheduler();
         if let Some(proc) = proc {
             // Change current proc
-            let mut cpu = CPU::get_current().unwrap();
+            let cpu_rwlock = CPU::get_current().unwrap();
+            let mut cpu = cpu_rwlock.write();
             let current_proc = cpu.get_process();
             if let Some(current_proc) = current_proc {
                 current_proc.data.lock().status = ProcessStatus::Ready;
             }
+            drop(cpu);
             let mut proc_data = proc.data.lock();
             proc_data.status = ProcessStatus::Running;
             let new_ctx = &proc_data.kernel_task_context as *const TaskContext;
             drop(proc_data);
 
+            let mut cpu = cpu_rwlock.write();
             cpu.set_process(Some(proc));
 
             // switch to proc task context

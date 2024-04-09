@@ -11,7 +11,7 @@ mod error;
 
 use core::any::Any;
 use core::option::Option;
-use log::{error, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use riscv::asm::ebreak;
 use riscv::register::medeleg::set_breakpoint;
 pub use id::Syscall;
@@ -35,7 +35,9 @@ macro_rules! do_syscall {
 }
 
 pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
-    let pid = CPU::get_current().unwrap().get_process().unwrap().pid.pid();
+    let proc = CPU::get_current_process().unwrap();
+    let pid = proc.pid.pid();
+    drop(proc);
     trace!("[Syscall][PID {}] {:?}, args = [{:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}]",
                             pid, syscall, args[0], args[1], args[2], args[3], args[4], args[5]);
     let ret = match syscall {
@@ -106,7 +108,7 @@ pub fn syscall_handler(syscall: Syscall, args: &[usize; 6]) -> usize {
             v
         }
         Err(e) => {
-            trace!("[Syscall][PID {}] {:?}, ret = Err({:?})", pid, syscall, e);
+            debug!("[Syscall][PID {}] {:?}, ret = Err({:?})", pid, syscall, e);
             (-(e as isize)) as usize
         }
     }

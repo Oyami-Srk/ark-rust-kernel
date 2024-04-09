@@ -8,7 +8,7 @@
 use alloc::sync::Arc;
 use core::arch::global_asm;
 use log::info;
-use crate::core::SpinlockGuard;
+use crate::core::{IntrlockGuard, SpinlockGuard};
 use crate::cpu::CPU;
 use crate::interrupt::TrapContext;
 use crate::process::{Process, ProcessData, ProcessStatus};
@@ -50,7 +50,7 @@ extern "C" {
     pub fn context_switch(old: *mut TaskContext, new: *const TaskContext);
 }
 
-fn yield_process(mut proc_data: SpinlockGuard<ProcessData>) -> *mut TaskContext {
+fn yield_process(mut proc_data: IntrlockGuard<ProcessData>) -> *mut TaskContext {
     match proc_data.status {
         ProcessStatus::Running => {
             proc_data.status = ProcessStatus::Ready;
@@ -61,7 +61,8 @@ fn yield_process(mut proc_data: SpinlockGuard<ProcessData>) -> *mut TaskContext 
 }
 
 fn _do_yield(old_ctx: *mut TaskContext) {
-    let mut cpu = CPU::get_current().unwrap();
+    let cpu_rwlock = CPU::get_current().unwrap();
+    let mut cpu = cpu_rwlock.write();
     let trap_enabled = cpu.get_trap_enabled();
     let new_ctx = cpu.get_context();
     cpu.set_process(None);
@@ -70,11 +71,11 @@ fn _do_yield(old_ctx: *mut TaskContext) {
 
     unsafe { context_switch(old_ctx, new_ctx) };
 
-    CPU::get_current().unwrap().set_trap_enabled(trap_enabled);
+    CPU::get_current().unwrap().write().set_trap_enabled(trap_enabled);
 }
 
 pub fn do_yield() {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let proc_data = proc.data.lock();
     let old_ctx = yield_process(proc_data);
     drop(proc);
@@ -82,7 +83,7 @@ pub fn do_yield() {
 }
 
 pub fn try_yield() {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     if let Some(proc_data) = proc.data.try_lock() {
         let old_ctx = yield_process(proc_data);
         _do_yield(old_ctx);

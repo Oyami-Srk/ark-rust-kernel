@@ -95,7 +95,7 @@ fn exception_handler(trap_context: &TrapContext, exp: scause::Exception, sstatus
         }
         Exception::StorePageFault | Exception::LoadPageFault => {
             // handle page fault
-            let proc = CPU::get_current().unwrap().get_process().unwrap();
+            let proc = CPU::get_current_process().unwrap();
             let mut proc_data = proc.data.lock();
 
             if proc_data.memory.alloc_stack_if_possible(stval.into()) {
@@ -106,7 +106,7 @@ fn exception_handler(trap_context: &TrapContext, exp: scause::Exception, sstatus
                     if let SPP::User = sstatus.spp() { "user" } else { "kernel" },
                     sepc, stval);
 
-            if from_user && let Some(proc) = CPU::get_current().unwrap().get_process() {
+            if from_user && let Some(proc) = CPU::get_current_process() {
                 error!("Happened on PID {}", proc.pid.pid());
             }
 
@@ -123,7 +123,7 @@ fn exception_handler(trap_context: &TrapContext, exp: scause::Exception, sstatus
                     if let SPP::User = sstatus.spp() { "user" } else { "kernel" },
                     sepc, stval);
 
-            if from_user && let Some(proc) = CPU::get_current().unwrap().get_process() {
+            if from_user && let Some(proc) = CPU::get_current_process() {
                 error!("Happened on PID {}", proc.pid.pid());
             }
 
@@ -194,7 +194,7 @@ pub fn user_trap_returner() {
         fn trap_ret_u(trap_context: &TrapContext);
     }
     disable_trap();
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let trap_context = {
         let mut data = proc.data.lock();
         data.get_trap_context()

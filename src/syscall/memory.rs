@@ -5,7 +5,7 @@ use crate::memory::{Addr, PAGE_SIZE, PTEFlags, VirtAddr, VirtPageId};
 use crate::syscall::error::{SyscallError, SyscallResult};
 
 pub fn brk(addr: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
     Ok(proc_data.memory.set_brk(addr.into()))
 }
@@ -35,7 +35,7 @@ pub fn mmap(addr: VirtAddr, len: usize, prot: usize, flags: usize, fd: usize, of
         return Ok(-1isize as usize);
     }
     let offset = offset as isize;
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
 
     let prot = ProtFlags::from_bits(prot).unwrap();
@@ -91,7 +91,7 @@ pub fn mmap(addr: VirtAddr, len: usize, prot: usize, flags: usize, fd: usize, of
 
 pub fn munmap(addr: VirtAddr, len: usize) -> SyscallResult {
     let pages_count = (len + addr.addr % PAGE_SIZE) / PAGE_SIZE;
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
     let first_vpn = VirtPageId::from(addr);
     for pg in first_vpn.id .. first_vpn.id + pages_count {

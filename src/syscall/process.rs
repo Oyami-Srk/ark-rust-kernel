@@ -15,13 +15,15 @@ const SIGCHLD: usize = 17;
 
 pub fn clone(flags: usize, child_stack: usize) -> SyscallResult {
     if flags != SIGCHLD { warn!("syscall clone with flags is not SIGCHLD."); }
-    let child_pid = get_process_manager().lock().fork(CPU::get_current().unwrap().get_process().unwrap(), child_stack as *const u8);
+    let child_pid = get_process_manager().lock().fork(
+        CPU::get_current_process().unwrap(),
+        child_stack as *const u8);
     do_yield(); // yield parent
     Ok(child_pid)
 }
 
 pub fn execve(path: VirtAddr, argv: VirtAddr, envp: VirtAddr) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
     let path = path.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_cstr();
     let page_table = &proc_data.memory.get_pagetable();
@@ -62,21 +64,21 @@ pub fn execve(path: VirtAddr, argv: VirtAddr, envp: VirtAddr) -> SyscallResult {
 }
 
 pub fn exit(code: usize) -> SyscallResult {
-    get_process_manager().lock().exit(CPU::get_current().unwrap().get_process().unwrap(), code);
+    get_process_manager().lock().exit(CPU::get_current_process().unwrap(), code);
     do_yield();
     Ok(0) // never used
 }
 
 pub fn wait_for(pid: usize, exit_code_buf: VirtAddr, option: usize) -> SyscallResult {
     let pid: isize = pid as isize;
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     // TODO: unwrap is not safe
     let exit_code = exit_code_buf.into_pa(proc.data.lock().memory.get_pagetable()).unwrap().get_ref_mut::<usize>();
     ProcessManager::wait_for(get_process_manager(), proc, pid, exit_code, option)
 }
 
 pub fn getppid() -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let proc_data = proc.data.lock();
     if let Some(parent) = &proc_data.parent {
         if let Some(parent) = parent.upgrade() {
@@ -90,7 +92,7 @@ pub fn getppid() -> SyscallResult {
 }
 
 pub fn getpid() -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     Ok(proc.pid.pid())
 }
 

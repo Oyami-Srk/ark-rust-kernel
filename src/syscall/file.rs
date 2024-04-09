@@ -38,7 +38,7 @@ fn get_dentry_from_fd(proc_data: &ProcessData, fd: usize) -> core::result::Resul
 /* For Single File */
 
 pub fn open(parent_fd: usize, filename_buf: VirtAddr, flags: FileOpenFlags, mode: FileModes) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
     let filename = filename_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_cstr();
     let cwd = get_dentry_from_fd(&proc_data, parent_fd)?;
@@ -63,12 +63,13 @@ pub fn open(parent_fd: usize, filename_buf: VirtAddr, flags: FileOpenFlags, mode
 }
 
 pub fn close(fd: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
 
     if let Some(Some(file)) = &proc_data.files.get(fd) {
-        if Arc::strong_count(file) > 2 {
+        if Arc::strong_count(file) > 1 {
             // File is dupped.
+            proc_data.files[fd] = None;
             return Ok(0);
         }
         if let Ok(_) = file.close() {
@@ -83,7 +84,7 @@ pub fn close(fd: usize) -> SyscallResult {
 }
 
 pub fn read(fd: usize, user_buf: VirtAddr, len: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let proc_data = proc.data.lock();
 
     let file = get_file_from_fd(&proc_data, fd)?;
@@ -99,12 +100,13 @@ pub fn read(fd: usize, user_buf: VirtAddr, len: usize) -> SyscallResult {
         phy_buf.copy_from_slice(&data_slice[..read_size]);
         Ok(read_size)
     } else {
-        Err(SyscallError::EIO)
+        // Err(SyscallError::EIO)
+        Ok(0)
     }
 }
 
 pub fn write(fd: usize, user_buf: VirtAddr, len: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let proc_data = proc.data.lock();
 
     let file = get_file_from_fd(&proc_data, fd)?;
@@ -114,7 +116,8 @@ pub fn write(fd: usize, user_buf: VirtAddr, len: usize) -> SyscallResult {
     if let Ok(write_size) = file.write(phy_buf) {
         Ok(write_size)
     } else {
-        Err(SyscallError::EIO)
+        // Err(SyscallError::EIO)
+        Ok(0)
     }
 }
 
@@ -125,7 +128,7 @@ pub struct IOVec {
 }
 
 pub fn readv(fd: usize, io_vecs: VirtAddr, len: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let proc_data = proc.data.lock();
     // Safety: PageTable won't drop since we not return from syscall.
     let page_table = unsafe {
@@ -152,7 +155,7 @@ pub fn readv(fd: usize, io_vecs: VirtAddr, len: usize) -> SyscallResult {
 }
 
 pub fn writev(fd: usize, io_vecs: VirtAddr, len: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let proc_data = proc.data.lock();
     // Safety: PageTable won't drop since we not return from syscall.
     let page_table = unsafe {
@@ -178,7 +181,7 @@ pub fn writev(fd: usize, io_vecs: VirtAddr, len: usize) -> SyscallResult {
 }
 
 pub fn lseek(fd: usize, offset: usize, whence: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let proc_data = proc.data.lock();
     let whence = match whence {
         0 => SeekPosition::Set,
@@ -195,7 +198,7 @@ pub fn lseek(fd: usize, offset: usize, whence: usize) -> SyscallResult {
 }
 
 pub fn linkat(old_dirfd: usize, old_path: VirtAddr, new_dirfd: usize, new_path: VirtAddr, flags: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let proc_data = proc.data.lock();
     let old_dir_dentry = get_dentry_from_fd(&proc_data, old_dirfd)?;
     let new_dir_dentry = get_dentry_from_fd(&proc_data, new_dirfd)?;
@@ -220,7 +223,7 @@ pub fn linkat(old_dirfd: usize, old_path: VirtAddr, new_dirfd: usize, new_path: 
 /* For Directory */
 
 pub fn mkdirat(dir_fd: usize, path_buf: VirtAddr, mode: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
     let path = path_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_cstr();
     let dentry = get_dentry_from_fd(&proc_data, dir_fd)?;
@@ -235,7 +238,7 @@ pub fn mkdirat(dir_fd: usize, path_buf: VirtAddr, mode: usize) -> SyscallResult 
 /* For Filesystem */
 
 pub fn mount(dev_buf: VirtAddr, mount_point_buf: VirtAddr, filesystem_buf: VirtAddr, flags: usize, data_ptr: VirtAddr) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
     let dev = dev_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_cstr();
     let mount_point = mount_point_buf.into_pa(&proc_data.memory.get_pagetable()).unwrap().get_cstr();
@@ -255,7 +258,7 @@ pub fn mount(dev_buf: VirtAddr, mount_point_buf: VirtAddr, filesystem_buf: VirtA
 }
 
 pub fn fstat(fd: usize, kstat_buf: VirtAddr) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
 
     let dentry = get_dentry_from_fd(&proc_data, fd)?;
@@ -287,7 +290,7 @@ pub fn fstat(fd: usize, kstat_buf: VirtAddr) -> SyscallResult {
 }
 
 pub fn newfstatat(dir_fd: usize, path: VirtAddr, kstat_buf: VirtAddr) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
 
     let dentry = get_dentry_from_fd(&proc_data, dir_fd)?;
@@ -329,7 +332,7 @@ pub fn newfstatat(dir_fd: usize, path: VirtAddr, kstat_buf: VirtAddr) -> Syscall
 }
 
 pub fn getdents64(fd: usize, buf: VirtAddr, len: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
 
     let file = get_file_from_fd(&proc_data, fd)?;
@@ -371,7 +374,7 @@ pub fn getdents64(fd: usize, buf: VirtAddr, len: usize) -> SyscallResult {
 
 /* For Pipe */
 pub fn pipe2(fds: VirtAddr, options: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
 
     let (file_read, file_write) = PipeFile::create();
@@ -389,7 +392,7 @@ pub fn pipe2(fds: VirtAddr, options: usize) -> SyscallResult {
 
 /* For dup */
 pub fn dup(old_fd: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
 
     let file = get_file_from_fd(&proc_data, old_fd)?;
@@ -399,7 +402,7 @@ pub fn dup(old_fd: usize) -> SyscallResult {
 }
 
 pub fn dup3(old_fd: usize, new_fd: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
 
     let file = get_file_from_fd(&proc_data, old_fd)?;

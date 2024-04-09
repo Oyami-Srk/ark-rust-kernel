@@ -16,7 +16,7 @@ pub fn sleep_ticks(ticks: usize) -> SyscallResult {
 }
 
 pub fn breakpoint(id: usize, data: VirtAddr, optional_length: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let proc_data = proc.data.lock();
     if id == 0 {
         // data is c string

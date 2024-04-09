@@ -9,6 +9,8 @@ use alloc::sync::Arc;
 use lazy_static::lazy_static;
 use alloc::vec::Vec;
 use core::arch::asm;
+use core::cell::RefCell;
+use core::ops::Deref;
 use riscv::register::{mhartid, sstatus};
 use log::info;
 use crate::interrupt::{disable_trap, enable_trap};
@@ -16,7 +18,7 @@ use crate::startup;
 use crate::process::{Process, TaskContext};
 use crate::interrupt::TrapContext;
 use crate::core::{Spinlock, SpinlockGuard};
-
+use spin::RwLock;
 
 pub(super) struct CPU {
     proc: Option<Arc<Process>>,
@@ -26,13 +28,13 @@ pub(super) struct CPU {
 }
 
 lazy_static! {
-    static ref CPUS: Vec<Spinlock<CPU>> = (|| {
+    static ref CPUS: Vec<Arc<RwLock<CPU>>> = (|| {
         let fdt = startup::get_boot_fdt();
         info!("Totally {} CPU(s) found.", fdt.cpus().count());
         // info!("CPU Freq: {}", fdt.cpus().find_map(|c| Some(c.clock_frequency())).unwrap());
         (0..fdt.cpus().count()).map(|_| {
-            Spinlock::new(CPU::new())
-        }).collect::<Vec<Spinlock<CPU>>>()
+            Arc::new(RwLock::new(CPU::new()))
+        }).collect::<Vec<Arc<RwLock<CPU>>>>()
     })();
 }
 
@@ -59,8 +61,8 @@ impl CPU {
         }
     }
 
-    pub fn get_current() -> Option<SpinlockGuard<'static, CPU>> {
-        CPUS.get(Self::get_current_id()).map(|v| v.lock())
+    pub fn get_current() -> Option<Arc<RwLock<CPU>>> {
+        CPUS.get(Self::get_current_id()).cloned()
     }
 
     pub fn get_count() -> usize {
@@ -69,6 +71,12 @@ impl CPU {
 
     pub fn get_process(&self) -> Option<Arc<Process>> {
         self.proc.clone()
+    }
+
+    pub fn get_current_process() -> Option<Arc<Process>> {
+        let cpu_rwlock = Self::get_current().unwrap();
+        let cpu = cpu_rwlock.read();
+        cpu.proc.clone()
     }
 
     pub fn push_interrupt(&mut self) {

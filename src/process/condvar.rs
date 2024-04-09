@@ -34,7 +34,7 @@ impl Condvar {
 
     pub fn wait(&self) {
         // TODO: 这里只是等待了，但是没有对关键区持有一个锁，这样会导致如果有竞态在当前进程加入等待列表之前就调用了wakeup，会导致唤醒丢失的问题。
-        let proc = CPU::get_current().unwrap().get_process().unwrap();
+        let proc = CPU::get_current_process().unwrap();
         proc.data.lock().status = ProcessStatus::Suspend;
         self.data.lock().waiting_list.push(Arc::downgrade(&proc));
     }

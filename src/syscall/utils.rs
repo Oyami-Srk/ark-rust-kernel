@@ -6,7 +6,7 @@ use crate::syscall::c::UtsName;
 use crate::syscall::error::{SyscallError, SyscallResult};
 
 pub fn uname(buf: VirtAddr) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
     // TODO: unwrap is not safe
     let buf = buf.into_pa(proc_data.memory.get_pagetable()).unwrap();
@@ -18,7 +18,7 @@ pub fn uname(buf: VirtAddr) -> SyscallResult {
 }
 
 pub fn getcwd(buf: VirtAddr, len: usize) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
     let mut fullpath_of_cwd = proc_data.cwd.fullpath();
     fullpath_of_cwd.push('\0');
@@ -41,7 +41,7 @@ pub fn getcwd(buf: VirtAddr, len: usize) -> SyscallResult {
 }
 
 pub fn chdir(path: VirtAddr) -> SyscallResult {
-    let proc = CPU::get_current().unwrap().get_process().unwrap();
+    let proc = CPU::get_current_process().unwrap();
     let mut proc_data = proc.data.lock();
     let path = path.into_pa(proc_data.memory.get_pagetable()).unwrap().get_cstr();
     let new_cwd = DirEntry::from_path(path, Some(proc_data.cwd.clone()));

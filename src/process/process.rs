@@ -15,7 +15,7 @@ use core::mem::size_of;
 use fdt::standard_nodes::Memory;
 use log::{error, info, trace, warn};
 use riscv::register::mcause::Trap;
-use crate::core::Spinlock;
+use crate::core::{Intrlock, Spinlock};
 use crate::cpu::CPU;
 use crate::filesystem::{DirEntry, DirEntryType, File, SeekPosition};
 use crate::interrupt::{enable_trap, TrapContext, user_trap_returner};
@@ -40,7 +40,7 @@ pub enum ProcessStatus {
 
 pub struct Process {
     pub pid: Pid,
-    pub data: Spinlock<ProcessData>,
+    pub data: Intrlock<ProcessData>,
 }
 
 pub struct ProcessData {
@@ -108,7 +108,7 @@ impl Process {
 
         Self {
             pid,
-            data: Spinlock::new(process_data),
+            data: Intrlock::new(process_data),
         }
     }
 
@@ -453,7 +453,11 @@ impl ProcessManager {
         // Close files
         while let Some(file) = proc_data.files.pop() {
             if let Some(file) = file {
-                let _ = file.close();
+                if Arc::strong_count(&file) > 1 {
+                    // File is dupped.
+                } else {
+                    let _ = file.close();
+                }
             }
         }
 
