@@ -59,8 +59,8 @@ impl File for Stdin {
 
     fn close(&self) -> EmptyResult { Ok(())}
 
-    fn get_dentry(&self) -> Arc<DirEntry> {
-        panic!("Invalid get dentry for stdin/stdout")
+    fn get_dentry(&self) -> Result<Arc<DirEntry>> {
+        Err("Invalid get dentry for stdin/stdout".into())
     }
 }
 
@@ -80,8 +80,8 @@ impl File for Stdout {
 
     fn close(&self) -> EmptyResult { Ok(()) }
 
-    fn get_dentry(&self) -> Arc<DirEntry> {
-        panic!("Invalid get dentry for stdin/stdout")
+    fn get_dentry(&self) -> Result<Arc<DirEntry>> {
+        Err("Invalid get dentry for stdin/stdout".into())
     }
 }
 

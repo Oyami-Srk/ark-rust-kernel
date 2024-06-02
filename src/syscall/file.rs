@@ -29,7 +29,7 @@ fn get_dentry_from_fd(proc_data: &ProcessData, fd: usize) -> core::result::Resul
     if fd == AT_FDCWD {
         Ok(proc_data.cwd.clone())
     } else if let Some(Some(file)) = proc_data.files.get(fd) {
-        Ok(file.get_dentry())
+        file.get_dentry().map_err(|_| SyscallError::ENOENT)
     } else {
         Err(SyscallError::EBADF)
     }
@@ -336,7 +336,7 @@ pub fn getdents64(fd: usize, buf: VirtAddr, len: usize) -> SyscallResult {
     let mut proc_data = proc.data.lock();
 
     let file = get_file_from_fd(&proc_data, fd)?;
-    let dentry = file.get_dentry();
+    let dentry = file.get_dentry().map_err(|_| SyscallError::ENOENT)?;
     let mut i = file.seek(0, SeekPosition::Cur).unwrap(); // get current offset
     let mut total_read = 0;
     let mut cur = buf;

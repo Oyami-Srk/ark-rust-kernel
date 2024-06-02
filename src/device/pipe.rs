@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use crate::core::Spinlock;
 use crate::filesystem::{DirEntry, DirEntryType, File, FileModes, FileOpenFlags, Inode, InodeStat, SeekPosition};
 use crate::process::{Condvar, do_yield};
-use crate::utils::error::EmptyResult;
+use crate::utils::error::{EmptyResult,Result};
 
 const PIPE_SIZE: usize = 512;
 
@@ -159,7 +159,7 @@ impl File for PipeFile {
         Ok(())
     }
 
-    fn get_dentry(&self) -> Arc<DirEntry> {
+    fn get_dentry(&self) -> Result<Arc<DirEntry>> {
         let name =
             format!("pipe-{}", match self.type_ {
                 PipeFileType::Reader => { "read" }
@@ -172,7 +172,7 @@ impl File for PipeFile {
             }
         );
         let dummy_dentry = DirEntry::new(None, name, Some(Arc::new(dummy_inode)), DirEntryType::File);
-        Arc::new(dummy_dentry)
+        Ok(Arc::new(dummy_dentry))
     }
 }
 

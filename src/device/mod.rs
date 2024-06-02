@@ -13,6 +13,7 @@ pub mod pipe;
 
 pub use console::{Console, Write as ConsoleWrite};
 use crate::do_init;
+use crate::println;
 
 pub fn init() {
     do_init!(

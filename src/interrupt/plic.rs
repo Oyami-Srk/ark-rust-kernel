@@ -1,13 +1,13 @@
 use core::mem::size_of;
 use lazy_static::lazy_static;
 use log::info;
-use riscv::asm::sfence_vma_all;
 use riscv::register::mhartid;
 use sbi::base::probe_extension;
 use sbi::hart_mask;
 use crate::config::HARDWARE_BASE_ADDR;
 use crate::cpu::CPU;
-use crate::memory::{Addr, get_kernel_page_table, PAGE_SIZE, PhyAddr, PTEFlags, VirtAddr};
+use crate::memory::{Addr, flush_page_table, get_kernel_page_table, PAGE_SIZE, PhyAddr, PTEFlags, VirtAddr};
+use crate::println;
 use crate::startup::get_boot_fdt;
 
 const PLIC_INT_PRIO_OFFSET: usize = 0x0;
@@ -50,19 +50,19 @@ struct PLIC(VirtAddr);
 impl PLIC {
     pub fn load_from_fdt() -> Self {
         let fdt = get_boot_fdt();
-        let (start, size) = fdt.find_all_nodes("/soc/plic").find_map(|node| {
+        let (start, size) = fdt.find_compatible(&["riscv,plic0"]).map(|node| {
             let (start, size) = node.reg().unwrap().find_map(|reg| Some((reg.starting_address, reg.size.unwrap()))).unwrap();
             if size < PAGE_SIZE || size % PAGE_SIZE != 0 || start as usize % PAGE_SIZE != 0 {
                 panic!("PLIC with unaligned size/addr is not supported.")
             }
-            Some((start, size))
-        }).unwrap();
+            (start, size)
+        }).expect("PLIC not Found");
 
         let vaddr = VirtAddr::from(start as usize + HARDWARE_BASE_ADDR);
         let paddr = PhyAddr::from(start as usize);
         get_kernel_page_table().lock().map_many(vaddr, paddr, size, PTEFlags::W | PTEFlags::R);
         info!("PLIC @ {} mapped to {}", paddr, vaddr);
-        sfence_vma_all();
+        flush_page_table(None);
         Self(vaddr)
     }
 
@@ -94,7 +94,7 @@ impl PLIC {
         self.write(Self::get_misc_offset_for_hart(hartid, priority) + offset, data)
     }
 
-    pub fn read_misc(&self, hartid: usize, priority: PLICPriority, offset: usize) -> u32{
+    pub fn read_misc(&self, hartid: usize, priority: PLICPriority, offset: usize) -> u32 {
         self.read(Self::get_misc_offset_for_hart(hartid, priority) + offset)
     }
 

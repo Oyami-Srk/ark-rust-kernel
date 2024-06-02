@@ -5,6 +5,8 @@
 //! Change log:
 //!   - 2024/03/19: File created.
 
+pub mod vendor;
+
 use alloc::sync::Arc;
 use lazy_static::lazy_static;
 use alloc::vec::Vec;
@@ -19,6 +21,7 @@ use crate::process::{Process, TaskContext};
 use crate::interrupt::TrapContext;
 use crate::core::{Spinlock, SpinlockGuard};
 use spin::RwLock;
+pub use vendor::{CpuId, VendorId, ArchId, ImplId, CPUID};
 
 pub(super) struct CPU {
     proc: Spinlock<Option<Arc<Process>>>,

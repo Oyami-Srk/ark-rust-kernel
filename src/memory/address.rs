@@ -8,9 +8,8 @@
 use core::fmt::{Display, Formatter};
 use core::iter::Step;
 use core::ops::{Add, Sub};
-use riscv::asm::sfence_vma_all;
 use crate::cpu::CPU;
-use crate::memory::{get_kernel_page_table, PAGE_SIZE, PageTable, PTEFlags};
+use crate::memory::{flush_page_table, get_kernel_page_table, PAGE_SIZE, PageTable, PTEFlags};
 use crate::utils::error::Result;
 
 // Declarations
@@ -299,12 +298,12 @@ impl VirtAddr {
                 VirtAddr::from(PhyAddr::from(PhyPageId::from(start_trampoline) + n).get_addr()),
                 pg_pa, PTEFlags::R | PTEFlags::W | PTEFlags::X);
         }
-        sfence_vma_all();
+        flush_page_table(None);
         // do accessor
         accessor(start_trampoline.to_offset((self.get_addr() % PAGE_SIZE) as isize));
         // clean up
         kpage_table.unmap_many(VirtAddr::from(start_trampoline.get_addr()), end_page.id - start_page.id + 1);
-        sfence_vma_all();
+        flush_page_table(None);
     }
 }
 

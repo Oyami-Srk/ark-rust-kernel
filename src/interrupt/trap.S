@@ -78,6 +78,9 @@ trap_save_u:
     ld t1, 32*8(sp)
     # satp = t1
     csrw satp, t1
+    fence.i
+    sfence.vma
+    fence.i
     # TrapContext.user_satp = t0
     sd t0, 32*8(sp)
 
@@ -98,7 +101,9 @@ trap_ret_u:
     ld t0, 32*8(a0)
     # satp = t0
     csrw satp, t0
+    fence.i
     sfence.vma
+    fence.i
     # TrapContext.user_satp = t1
     sd t1, 32*8(a0)
 

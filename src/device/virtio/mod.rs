@@ -3,14 +3,13 @@ mod block;
 use core::mem::size_of;
 use core::ptr::NonNull;
 use log::info;
-use riscv::asm::sfence_vma_all;
 use crate::startup::get_boot_fdt;
 use virtio_drivers::{BufferDirection, Hal, PhysAddr};
 use virtio_drivers::device::blk::VirtIOBlk;
 use virtio_drivers::transport::mmio::{MmioTransport, VirtIOHeader};
 use virtio_drivers::transport::{DeviceType, Transport};
 use crate::config::HARDWARE_BASE_ADDR;
-use crate::memory::{PhyPage, VirtAddr, alloc_page_without_trace, dealloc_page_without_trace, PhyAddr, PhyPageId, PAGE_SIZE, get_kernel_page_table, Addr, PTEFlags};
+use crate::memory::{PhyPage, VirtAddr, alloc_page_without_trace, dealloc_page_without_trace, PhyAddr, PhyPageId, PAGE_SIZE, get_kernel_page_table, Addr, PTEFlags, flush_page_table};
 use crate::utils::error::EmptyResult;
 
 pub struct VirtioHal;
@@ -65,7 +64,7 @@ pub fn init() {
             panic!("VirtIO with unaligned size/addr is not supported.")
         }
         get_kernel_page_table().lock().map_many(vaddr, paddr, size, PTEFlags::W | PTEFlags::R);
-        sfence_vma_all();
+        flush_page_table(None);
         let header = NonNull::new(vaddr.get_addr() as *mut VirtIOHeader).unwrap();
         let transport = unsafe { MmioTransport::new(header) };
         if let Ok(transport) = transport {

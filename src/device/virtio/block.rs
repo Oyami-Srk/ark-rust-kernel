@@ -19,6 +19,7 @@ use crate::interrupt::{plic, register_interrupt_handler};
 use crate::memory::{Addr, PAGE_SIZE, PhyAddr, PhyPage, VirtAddr};
 use crate::{process, utils};
 use crate::process::Condvar;
+use crate::utils::error::Result;
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum VirtIOBlockRequestType {
@@ -65,8 +66,8 @@ impl File for VirtIOBlockFile {
         Ok(())
     }
 
-    fn get_dentry(&self) -> Arc<DirEntry> {
-        self.dentry.clone()
+    fn get_dentry(&self) -> Result<Arc<DirEntry>> {
+        Ok(self.dentry.clone())
     }
 }
 

@@ -13,6 +13,7 @@ mod task;
 mod process_memory;
 mod condvar;
 mod aux_;
+mod signal;
 
 
 use alloc::string::String;

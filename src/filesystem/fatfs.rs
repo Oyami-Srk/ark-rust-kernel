@@ -243,8 +243,8 @@ impl<'a> File for FatFSFile<'a> {
         Ok(())
     }
 
-    fn get_dentry(&self) -> Arc<DirEntry> {
-        self.dentry.clone()
+    fn get_dentry(&self) -> KernelResult<Arc<DirEntry>> {
+        Ok(self.dentry.clone())
     }
 }
 

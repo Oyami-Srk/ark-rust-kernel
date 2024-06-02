@@ -16,7 +16,9 @@ mod fixed_bitset;
 macro_rules! do_init {
     ($($module:tt),*) => (
         $(
+            println!("====> Start initializing {} <====", stringify!($module));
             $module::init();
+            println!("====> Complete initializing {} <====", stringify!($module));
         )*
     );
 }

@@ -38,6 +38,7 @@ use utils::logger;
 use log::info;
 
 use sbi::system_reset::{ResetReason, ResetType};
+use crate::cpu::CPUID;
 use crate::interrupt::enable_trap;
 use crate::memory::PhyPage;
 
@@ -54,8 +55,9 @@ pub fn main(core_id: u64, boot_core: bool) -> ! {
   / /| | / ___/ //_/   / /_/ / / / / ___/ __/   / ,< / _ \/ ___/ __ \/ _ \/ /
  / ___ |/ /  / ,<     / _, _/ /_/ (__  ) /_    / /| /  __/ /  / / / /  __/ /
 /_/  |_/_/  /_/|_|   /_/ |_|\__,_/____/\__/   /_/ |_\___/_/  /_/ /_/\___/_/
-Ark Rust Kernel ({}), Created by Shiroko, with love and passion.
-"#, env!("CARGO_PKG_VERSION"));
+Ark Rust Kernel ({}), Created by Shiroko, with love and passion."#, env!("CARGO_PKG_VERSION"));
+
+    println!("VendorId: {:?}, ArchId: 0x{:x}, ImplId: 0x{:x}", CPUID.get_vendor(), CPUID.get_arch(), CPUID.get_impl());
 
     do_init!(
         logger,

@@ -4,7 +4,20 @@
 .global _start
 
 _start:
+    # Make FIP/ATF Happy.
+    j _real_start
+    .balign 4
+    .word 0x33334c42
+    .word 0xdeadbeea
+    .word 0xdeadbeeb
+    .quad 0x80200000
+    .word 0xdeadbeec
+    .balign 4
+    j _real_start
+    .balign 4
+
     # SBI jump to kernel with a0 = mhartid, a1 = fdt_addr
+    _real_start:
 
     # Mask all interrupts
     csrw sie, 0

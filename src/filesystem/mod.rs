@@ -226,7 +226,7 @@ pub trait File {
     fn read(&self, buf: &mut [u8]) -> Result<usize>;
     fn write(&self, buf: &[u8]) -> Result<usize>;
     fn close(&self) -> EmptyResult;
-    fn get_dentry(&self) -> Arc<DirEntry>;
+    fn get_dentry(&self) -> Result<Arc<DirEntry>>;
 }
 
 pub struct DirFile {
@@ -270,8 +270,8 @@ impl File for DirFile {
 
     fn close(&self) -> EmptyResult { Ok(()) }
 
-    fn get_dentry(&self) -> Arc<DirEntry> {
-        self.dentry.clone()
+    fn get_dentry(&self) -> Result<Arc<DirEntry>> {
+        Ok(self.dentry.clone())
     }
 }
 
